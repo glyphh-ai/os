@@ -52,6 +52,7 @@
             <option value="low">low effort</option><option value="medium">medium effort</option><option value="high">high effort</option><option value="xhigh">xhigh effort</option><option value="max">max effort</option>
           </select>
           <button class="chip" id="btn-new">new chat</button>
+          <button class="chip" id="btn-character">character</button>
           <span id="mic-level"><i></i></span>
         </div>
       </div>
@@ -96,6 +97,21 @@
       <label>Working folder<input id="set-cwd" /></label>
       <label>Claude executable<input id="set-claude-path" placeholder="empty = claude on your PATH" /></label>
       <div class="actions"><button class="ghost" data-close>Close</button><button class="primary" id="set-save">Save</button></div>
+    </div>
+  </div>
+
+  <div id="character" class="modal side" hidden>
+    <div class="sheet">
+      <div class="launch-head"><h2 style="flex:1;margin:0">Character</h2><button class="icon-btn" data-close>✕</button></div>
+      <div class="presets" id="char-presets"></div>
+      <div class="row">
+        <label>Style<select id="char-style"></select></label>
+        <label style="flex:0 0 70px">Color<input id="char-color" type="color" /></label>
+      </div>
+      <label>Line density<input id="char-density" type="range" min="10" max="60" step="1" /></label>
+      <div id="char-sliders" class="sliders"></div>
+      <div class="row"><label>Name<input id="char-name" placeholder="Name your character" /></label></div>
+      <div class="actions"><button class="ghost" id="char-delete">Delete</button><button class="primary" id="char-save">Save character</button></div>
     </div>
   </div>
 

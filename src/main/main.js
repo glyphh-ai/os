@@ -111,7 +111,7 @@ handle("favicon:resolve", async (pageUrl) => {
   } catch { /* offline or blocked */ }
   return (await ok(u.origin + "/favicon.ico")) ? u.origin + "/favicon.ico" : null;
 });
-const STORES = new Set(["apps", "layouts"]); // custom apps, saved center layouts
+const STORES = new Set(["apps", "layouts", "characters"]); // custom apps, saved center layouts, characters
 handle("store:get", (name) => (STORES.has(name) ? readJson(name + ".json", null) : null));
 handle("store:set", (name, v) => STORES.has(name) && writeJson(name + ".json", v));
 

@@ -49,6 +49,8 @@ function osServer(ui) {
       tool("os_layout", "Open a layout in the center as a new carousel slide: a saved or built-in layout by name (dev, social, comms, split, thirds, grid, main-side), or a grid of your own: cols, rows and the apps in reading order. Use name='list' to list them.",
         { name: z.string().optional(), cols: z.number().optional(), rows: z.number().optional(), apps: z.array(z.string()).optional() },
         safe(async (a) => text(await ui("layout", a)))),
+      tool("os_character", "Change who you appear as: a character by name (Glyphh, the alien cat, or one the user made), or name='list'.", { name: z.string() },
+        safe(async (a) => text(await ui("character", a)))),
       tool("os_rail", "Collapse or expand the left or right rail.", { rail: z.enum(["left", "right"]), open: z.boolean() }, safe(async (a) => text(await ui("rail", a)))),
       tool("os_dip", "Load a saved .dip workspace (a whole layout of apps), or save the current one with save=true, or list them with name='list'.",
         { name: z.string(), save: z.boolean().optional() }, safe(async (a) => text(await ui("dip", a)))),

@@ -7,6 +7,7 @@
 // like the desktop's layouts: cols × rows, column widths, cells that span).
 // Every app is one live instance; moving it moves its element.
 import { createFace } from "./face.js";
+import { PRESETS, PARAMS, STYLES } from "./character.js";
 import { createVoice } from "./voice.js";
 import { APPS, mountApp, webAppFor, registerCustom, slugify, iconHTML, onIconChange } from "./apps.js";
 
@@ -510,6 +511,59 @@ const voice = createVoice({
 voice.setThreshold(settings.vadThreshold);
 setInterval(() => { if (recording !== voice.recording) { recording = voice.recording; updateFace(); } }, 100);
 
+// ── characters: Man, Woman, Boy, Girl, and your own ───────────────────
+let chars = (await os.store.get("characters")) || { active: "glyphh", custom: {} };
+const allChars = () => ({ ...PRESETS, ...chars.custom });
+const charOf = (key) => structuredClone(allChars()[key] || PRESETS.glyphh);
+let draft = charOf(chars.active), draftKey = chars.active;
+face.setCharacter(draft);
+
+function useCharacter(key) {
+  draftKey = key; draft = charOf(key);
+  chars.active = key; os.store.set("characters", chars);
+  face.setCharacter(draft);
+  return `now ${draft.name}`;
+}
+
+function drawCharacter() {
+  const P = $("#char-presets"); P.innerHTML = "";
+  for (const [k, c] of Object.entries(allChars())) {
+    const b = btn(c.name, "", () => { useCharacter(k); drawCharacter(); });
+    if (k === draftKey) b.className = "on";
+    P.append(b);
+  }
+  $("#char-style").innerHTML = Object.entries(STYLES).map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
+  $("#char-style").value = draft.style || "contour";
+  $("#char-color").value = draft.color || "#ad5df8"; $("#char-density").value = draft.density || 26;
+  $("#char-name").value = chars.custom[draftKey] ? draft.name : "";
+  $("#char-delete").hidden = !chars.custom[draftKey];
+  const S = $("#char-sliders"); S.innerHTML = "";
+  for (const [k, p] of Object.entries(PARAMS)) {
+    const l = document.createElement("label"); l.textContent = p.label;
+    const r = Object.assign(document.createElement("input"), { type: "range", min: p.min, max: p.max, step: p.step, value: draft[k] ?? 1 });
+    r.oninput = () => { draft[k] = Number(r.value); remesh(true); };
+    r.onchange = () => remesh(false);
+    l.append(r); S.append(l);
+  }
+}
+let remeshQueued = false;
+function remesh(quick) {
+  if (quick) { if (remeshQueued) return; remeshQueued = true; requestAnimationFrame(() => { remeshQueued = false; face.setCharacter(draft, true); }); }
+  else face.setCharacter(draft);
+}
+$("#char-style").onchange = (e) => { draft.style = e.target.value; remesh(false); };
+$("#char-color").oninput = (e) => { draft.color = e.target.value; remesh(false); };
+$("#char-density").oninput = (e) => { draft.density = Number(e.target.value); remesh(false); };
+$("#char-save").onclick = () => {
+  const name = $("#char-name").value.trim() || (chars.custom[draftKey] ? draft.name : "");
+  if (!name) return toast("Name your character to save it", true);
+  const key = chars.custom[draftKey] && draft.name === name ? draftKey : "c-" + slugify(name);
+  chars.custom[key] = { ...draft, name };
+  useCharacter(key); drawCharacter(); toast(`Saved ${name}`);
+};
+$("#char-delete").onclick = () => { delete chars.custom[draftKey]; useCharacter("glyphh"); drawCharacter(); };
+$("#btn-character").onclick = () => { if (L.center.index !== 0) go(0); drawCharacter(); $("#character").hidden = false; };
+
 // ── composer ──────────────────────────────────────────────────────────
 const input = $("#input"), log = $("#log");
 const autosize = () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px"; };
@@ -567,7 +621,7 @@ function submit() {
 const areaArg = (a) => a.find((x) => AREA_NAMES.includes(x));
 /** .dip / .open / .close / .move / .layout / .rail run here; everything else goes to Claude. */
 function localCommand(t) {
-  const m = t.match(/^[./](dip|open|close|move|face|new|settings|layout|rail)\b\s*(.*)$/i);
+  const m = t.match(/^[./](dip|open|close|move|face|new|settings|layout|rail|character)\b\s*(.*)$/i);
   if (!m) return null;
   const [, cmd, rest] = m; const a = rest.trim().split(/\s+/).filter(Boolean);
   switch (cmd.toLowerCase()) {
@@ -579,6 +633,7 @@ function localCommand(t) {
     case "new": $("#btn-new").click(); return "new conversation";
     case "settings": openSettings(); return "settings";
     case "layout": return a.length > 1 ? layoutFromArgs({ apps: a }) : layoutFromArgs({ name: a[0] || "list" });
+    case "character": return handlers.character({ name: rest.trim() || "list" });
     case "rail": return setRail(a[0] || "left", a[1] ? a[1] !== "close" : !L.rails[a[0] || "left"].open);
   }
 }
@@ -671,6 +726,12 @@ const handlers = {
   focus: (a) => focusApp(a.app),
   layout: (a) => layoutFromArgs(a),
   rail: (a) => setRail(a.rail, a.open),
+  character: (a) => {
+    if (!a.name || a.name === "list") return "characters: " + Object.values(allChars()).map((c) => c.name).join(", ");
+    const key = Object.keys(allChars()).find((k) => k === a.name.toLowerCase() || allChars()[k].name.toLowerCase() === a.name.toLowerCase());
+    if (!key) throw new Error(`no character "${a.name}" — characters: ${Object.values(allChars()).map((c) => c.name).join(", ")}`);
+    return useCharacter(key);
+  },
   dip: (a) => dip(a.name, a.save),
   terminal: async () => { if (!isOpen("terminal")) openApp("terminal", "right-bottom"); else focusApp("terminal"); await new Promise((r) => setTimeout(r, 600)); return inst.get("terminal").api.termId; },
   edit: (a) => openFile(a.path, a.line),
