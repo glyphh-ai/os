@@ -96,6 +96,9 @@ handle("layout:get", () => readJson("layout.json", null));
 handle("layout:set", (l) => writeJson("layout.json", l));
 handle("dips:get", () => readJson("dips.json", null));
 handle("dips:set", (d) => writeJson("dips.json", d));
+const STORES = new Set(["apps", "layouts"]); // custom apps, saved center layouts
+handle("store:get", (name) => (STORES.has(name) ? readJson(name + ".json", null) : null));
+handle("store:set", (name, v) => STORES.has(name) && writeJson(name + ".json", v));
 
 handle("win:screenshot", async () => (await win.webContents.capturePage()).resize({ width: 1440 }).toPNG().toString("base64"));
 handle("shell:open", (url) => /^https?:\/\//.test(url) && shell.openExternal(url));
@@ -123,7 +126,11 @@ function createWindow() {
   // GLYPHH_OS_SMOKE=<png>: boot, print the renderer console, screenshot, quit.
   if (process.env.GLYPHH_OS_SMOKE) {
     win.webContents.on("console-message", (e) => console.log("[renderer]", e.level, e.message));
-    if (process.env.GLYPHH_OS_SMOKE_SAY) setTimeout(() => win.webContents.executeJavaScript(`document.querySelector("#input").value = ${JSON.stringify(process.env.GLYPHH_OS_SMOKE_SAY)}; document.querySelector("#btn-send").click();`), 3000);
+    // GLYPHH_OS_SMOKE_SAY: lines to send, split on ";;"; "#sel" clicks that element instead.
+    (process.env.GLYPHH_OS_SMOKE_SAY || "").split(";;").map((s) => s.trim()).filter(Boolean).forEach((line, i) =>
+      setTimeout(() => win.webContents.executeJavaScript(line.startsWith("#")
+        ? `document.querySelector(${JSON.stringify(line)}).click()`
+        : `document.querySelector("#input").value = ${JSON.stringify(line)}; document.querySelector("#btn-send").click();`), 3000 + i * 800));
     setTimeout(async () => {
       writeFileSync(process.env.GLYPHH_OS_SMOKE, (await win.webContents.capturePage()).toPNG());
       app.quit();

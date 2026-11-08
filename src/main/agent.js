@@ -16,12 +16,12 @@ const text = (t) => ({ content: [{ type: "text", text: String(t) }] });
 const safe = (fn) => async (args) => { try { return await fn(args); } catch (e) { return { ...text(`error: ${e.message}`), isError: true }; } };
 
 const READ_ONLY = new Set(["Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "TodoWrite", "ToolSearch", "NotebookRead", "Task", "Agent"]);
-const AREAS = ["left", "center", "right"];
+const AREAS = ["left", "left-bottom", "center", "right", "right-bottom"];
 
 const SYSTEM = `You are the voice and hands of Glyphh OS, an AI operating system on the user's Mac.
 The user sees you as a holographic face at the center of the screen and usually talks to you by voice; your text replies are read aloud.
 Keep spoken replies short and natural: one to three sentences, no markdown tables, no code blocks unless asked. Put long output in a panel instead (open a file, the terminal, or the browser).
-The screen has three areas: left, center (a swipeable carousel whose first slide is your face) and right. Apps: files, editor, terminal, browser, git, email, calendar, connections, instagram, x, slack, youtube, and any url.
+The screen has a left rail (areas "left" and "left-bottom", git by default at the bottom), a right rail ("right" and "right-bottom", the terminal by default at the bottom), and the center: a swipeable carousel whose first slide is your face, then one slide per app or per layout (a grid of apps). Apps: files, editor, terminal, browser, git, email, calendar, connections, instagram, x, slack, youtube, the user's custom apps, and any url.
 Use the os_* tools to drive the UI: open, move, focus and close apps, navigate and operate web apps (outline first to find selectors, then click/type/read), run commands in the visible terminal, open files in the editor, and load .dip workspaces.
 Email, calendar and other accounts come from the user's Claude connectors; use those tools for data and the web apps for anything they cannot do.
 Never send, post, delete or buy anything without the user saying yes to that exact action first.`;
@@ -46,6 +46,10 @@ function osServer(ui) {
       tool("os_close", "Close an app.", { app: z.string() }, safe(async (a) => text(await ui("close", a)))),
       tool("os_move", "Move an open app to another area.", { app: z.string(), area: z.enum(AREAS) }, safe(async (a) => text(await ui("move", a)))),
       tool("os_focus", "Bring an app to the front of its area (center: swipe the carousel to it). app 'face' swipes back to the face.", { app: z.string() }, safe(async (a) => text(await ui("focus", a)))),
+      tool("os_layout", "Open a layout in the center as a new carousel slide: a saved or built-in layout by name (dev, social, comms, split, thirds, grid, main-side), or a grid of your own: cols, rows and the apps in reading order. Use name='list' to list them.",
+        { name: z.string().optional(), cols: z.number().optional(), rows: z.number().optional(), apps: z.array(z.string()).optional() },
+        safe(async (a) => text(await ui("layout", a)))),
+      tool("os_rail", "Collapse or expand the left or right rail.", { rail: z.enum(["left", "right"]), open: z.boolean() }, safe(async (a) => text(await ui("rail", a)))),
       tool("os_dip", "Load a saved .dip workspace (a whole layout of apps), or save the current one with save=true, or list them with name='list'.",
         { name: z.string(), save: z.boolean().optional() }, safe(async (a) => text(await ui("dip", a)))),
       tool("os_web_goto", "Navigate an open web app (browser, x, youtube, …) to a url.", { app: z.string(), url: z.string() }, safe(async (a) => text(await rpa.goto(a.app, a.url)))),

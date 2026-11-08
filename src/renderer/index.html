@@ -21,7 +21,12 @@
   </header>
 
   <main id="stage">
-    <section class="area" data-area="left"><nav class="tabs"></nav><div class="area-body"></div><div class="area-empty">Drop an app here</div></section>
+    <aside class="rail" data-rail="left">
+      <section class="area" data-area="left"><nav class="tabs"></nav><div class="area-body"></div></section>
+      <div class="hsplit" data-rail="left"></div>
+      <section class="area" data-area="left-bottom"><nav class="tabs"></nav><div class="area-body"></div></section>
+      <div class="rail-mini"></div>
+    </aside>
     <div class="splitter" data-split="left"></div>
     <section class="area center" data-area="center">
       <nav class="tabs center-tabs"></nav>
@@ -40,6 +45,7 @@
           <button class="icon-btn toggle" id="btn-speak" title="Speak replies">🔊</button>
           <button class="icon-btn" id="btn-stop" title="Stop" hidden>■</button>
           <button class="send" id="btn-send" title="Send">↑</button>
+          <button class="icon-btn" id="btn-close-composer" title="Close (⌘K to reopen)">✕</button>
         </div>
         <div class="chips">
           <select id="sel-model" title="Model"></select>
@@ -52,10 +58,26 @@
       </div>
     </section>
     <div class="splitter" data-split="right"></div>
-    <section class="area" data-area="right"><nav class="tabs"></nav><div class="area-body"></div><div class="area-empty">Drop an app here</div></section>
+    <aside class="rail" data-rail="right">
+      <section class="area" data-area="right"><nav class="tabs"></nav><div class="area-body"></div></section>
+      <div class="hsplit" data-rail="right"></div>
+      <section class="area" data-area="right-bottom"><nav class="tabs"></nav><div class="area-body"></div></section>
+      <div class="rail-mini"></div>
+    </aside>
   </main>
+  <button id="glyphh-pill" hidden title="Talk to Glyphh (⌘K)"><img src="brand/glyphh-mark-purple.png" alt="" /><span>Glyphh</span><i id="pill-level"></i></button>
 
-  <div id="launcher" class="modal" hidden><div class="sheet"><h2>Open an app</h2><div class="grid"></div></div></div>
+  <div id="launcher" class="modal" hidden>
+    <div class="sheet">
+      <div class="launch-head">
+        <div class="seg"><button data-tab="apps" class="on">Apps</button><button data-tab="layouts">Layouts</button></div>
+        <span id="launch-target"></span>
+        <button class="icon-btn" data-close>✕</button>
+      </div>
+      <div id="launch-body"></div>
+      <div class="pager"><button id="pg-prev">‹</button><span id="pg-dots"></span><button id="pg-next">›</button></div>
+    </div>
+  </div>
 
   <div id="settings" class="modal" hidden>
     <div class="sheet">

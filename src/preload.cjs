@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("os", {
   rpa: { register: inv("rpa:register"), unregister: inv("rpa:unregister") },
   layout: { get: inv("layout:get"), set: inv("layout:set") },
   dips: { get: inv("dips:get"), set: inv("dips:set") },
+  store: { get: inv("store:get"), set: inv("store:set") },
   screenshot: inv("win:screenshot"),
   openExternal: inv("shell:open"),
   onCmd: on("os:cmd"),

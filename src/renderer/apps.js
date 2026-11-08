@@ -32,6 +32,13 @@ export const APPS = {
   youtube:     { title: "YouTube", icon: "▷", group: "social", web: "https://studio.youtube.com/channel/UC/analytics", brief: "my YouTube channel analytics: views, watch time, subscribers and top videos" },
 };
 
+/** The user's own apps (Apps → Add app): a name, a url, an icon. */
+export function registerCustom(list = []) {
+  for (const k of Object.keys(APPS)) if (APPS[k].custom) delete APPS[k];
+  for (const a of list) APPS[a.id] = { title: a.name, icon: a.icon || "◌", web: a.url, custom: true, area: a.area, brief: a.brief || undefined };
+}
+export const slugify = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "app";
+
 /** A url opened as its own app gets an id from its host. */
 export function webAppFor(url) {
   const u = new URL(/^https?:/.test(url) ? url : "https://" + url);
@@ -205,7 +212,7 @@ function mountGit(el, ctx) {
   async function render() {
     body.innerHTML = "";
     let s;
-    try { s = await os.git.status(cwd); } catch (e) { body.append(h("div", { class: "empty-note" }, "Not a git repository here.\n" + e.message)); return; }
+    try { s = await os.git.status(cwd); } catch { body.append(h("div", { class: "empty-note" }, `${cwd} isn't a git repository — type a repo folder above.`)); return; }
     body.append(h("div", { class: "section-h" }, `⎇ ${s.branch}`));
     const staged = s.files.filter((f) => f.x !== " " && f.x !== "?");
     const changed = s.files.filter((f) => f.y !== " " || f.x === "?");

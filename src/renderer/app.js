@@ -1,15 +1,26 @@
 // Glyphh OS — the renderer: layout manager, center carousel, composer, voice,
 // and the agent's hands on the UI (os:cmd).
+//
+// The screen: a left rail (areas "left" + "left-bottom"), a right rail ("right"
+// + "right-bottom"), each collapsible, and the center: a carousel whose first
+// slide is the face, then one slide per app or per layout (a grid of apps,
+// like the desktop's layouts: cols × rows, column widths, cells that span).
+// Every app is one live instance; moving it moves its element.
 import { createFace } from "./face.js";
 import { createVoice } from "./voice.js";
-import { APPS, mountApp, webAppFor } from "./apps.js";
+import { APPS, mountApp, webAppFor, registerCustom, slugify } from "./apps.js";
 
 const os = window.os;
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const AREAS = ["left", "center", "right"];
+const RAIL_AREAS = ["left", "left-bottom", "right", "right-bottom"];
+const AREA_NAMES = [...RAIL_AREAS, "center"];
+const railOf = (area) => area.split("-")[0];
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 let settings = await os.settings.get();
+let customApps = (await os.store.get("apps")) || [];
+registerCustom(customApps);
 
 // ── toasts ────────────────────────────────────────────────────────────
 function toast(msg, bad) {
@@ -18,188 +29,381 @@ function toast(msg, bad) {
   return "shown";
 }
 
-// ── layout ────────────────────────────────────────────────────────────
+// ── layouts (center grids) ────────────────────────────────────────────
+const cell = (app, col, row, rowSpan = 1, colSpan = 1) => ({ app, col, row, colSpan, rowSpan });
+const BUILTIN_LAYOUTS = {
+  split: { name: "Split", cols: 2, rows: 1, cells: [cell(null, 0, 0), cell(null, 1, 0)] },
+  "main-side": { name: "Main + side", cols: 2, rows: 1, colWidths: [0.65, 0.35], cells: [cell(null, 0, 0), cell(null, 1, 0)] },
+  thirds: { name: "Thirds", cols: 3, rows: 1, cells: [cell(null, 0, 0), cell(null, 1, 0), cell(null, 2, 0)] },
+  stack: { name: "Stack", cols: 1, rows: 2, cells: [cell(null, 0, 0), cell(null, 0, 1)] },
+  grid: { name: "Grid 2×2", cols: 2, rows: 2, cells: [cell(null, 0, 0), cell(null, 1, 0), cell(null, 0, 1), cell(null, 1, 1)] },
+  "main-two": { name: "Main + two", cols: 2, rows: 2, colWidths: [0.6, 0.4], cells: [cell(null, 0, 0, 2), cell(null, 1, 0), cell(null, 1, 1)] },
+  dev: { name: "Dev", cols: 3, rows: 1, colWidths: [0.24, 0.46, 0.3], cells: [cell("files", 0, 0), cell("editor", 1, 0), cell("browser", 2, 0)] },
+  social: { name: "Social", cols: 2, rows: 2, cells: [cell("x", 0, 0), cell("instagram", 1, 0), cell("youtube", 0, 1), cell("slack", 1, 1)] },
+  comms: { name: "Comms", cols: 2, rows: 1, cells: [cell("email", 0, 0), cell("calendar", 1, 0)] },
+};
+let savedLayouts = (await os.store.get("layouts")) || {};
+const allLayouts = () => ({ ...BUILTIN_LAYOUTS, ...savedLayouts });
+
+// ── state ─────────────────────────────────────────────────────────────
 const DEFAULT_LAYOUT = {
-  areas: { left: { apps: ["files", "git", "email"], active: "files" }, center: { apps: [], index: 0 }, right: { apps: ["terminal", "browser", "calendar"], active: "terminal" } },
-  sizes: { left: 380, right: 440 },
+  areas: {
+    left: { apps: ["files", "email"], active: "files" },
+    "left-bottom": { apps: ["git"], active: "git" },
+    right: { apps: ["browser", "calendar"], active: "browser" },
+    "right-bottom": { apps: ["terminal"], active: "terminal" },
+  },
+  center: { slides: [], index: 0 },
+  rails: { left: { open: true, w: 360, split: 0.58 }, right: { open: true, w: 440, split: 0.5 } },
+  composer: { open: true },
   urls: {},
 };
 const DEFAULT_DIPS = {
-  dev: { areas: { left: { apps: ["files", "git"], active: "files" }, center: { apps: ["editor"], index: 1 }, right: { apps: ["terminal", "browser"], active: "terminal" } } },
-  social: { areas: { left: { apps: ["x", "instagram"], active: "x" }, center: { apps: ["youtube"], index: 1 }, right: { apps: ["slack"], active: "slack" } } },
-  comms: { areas: { left: { apps: ["email"], active: "email" }, center: { apps: [], index: 0 }, right: { apps: ["calendar", "slack", "connections"], active: "calendar" } } },
-  focus: { areas: { left: { apps: [], active: null }, center: { apps: [], index: 0 }, right: { apps: [], active: null } }, sizes: { left: 0, right: 0 } },
+  dev: { areas: { left: { apps: ["files"], active: "files" }, "left-bottom": { apps: ["git"], active: "git" }, right: { apps: ["browser"], active: "browser" }, "right-bottom": { apps: ["terminal"], active: "terminal" } }, center: { slides: [{ id: "s-editor", kind: "app", app: "editor" }], index: 1 } },
+  social: { areas: { left: { apps: [], active: null }, "left-bottom": { apps: ["git"], active: "git" }, right: { apps: ["slack"], active: "slack" }, "right-bottom": { apps: ["terminal"], active: "terminal" } }, center: { slides: [{ id: "s-social", kind: "layout", ...structuredClone(BUILTIN_LAYOUTS.social), cells: BUILTIN_LAYOUTS.social.cells.filter((c) => c.app !== "slack").concat([cell(null, 1, 1)]) }], index: 1 } },
+  comms: { areas: { left: { apps: ["email"], active: "email" }, "left-bottom": { apps: ["git"], active: "git" }, right: { apps: ["calendar", "connections"], active: "calendar" }, "right-bottom": { apps: ["terminal"], active: "terminal" } }, center: { slides: [], index: 0 } },
+  focus: { rails: { left: { open: false, w: 360, split: 0.58 }, right: { open: false, w: 440, split: 0.5 } } },
 };
 
-let L = (await os.layout.get()) || structuredClone(DEFAULT_LAYOUT);
-let dips = (await os.dips.get()) || structuredClone(DEFAULT_DIPS);
-const inst = new Map(); // app id → { el, api, area }
+function normalize(l) {
+  const d = structuredClone(DEFAULT_LAYOUT);
+  if (!l || !l.center?.slides) return d; // a layout from before rails: start fresh
+  const out = { ...d, ...l, areas: { ...d.areas, ...(l.areas || {}) }, rails: { left: { ...d.rails.left, ...(l.rails?.left || {}) }, right: { ...d.rails.right, ...(l.rails?.right || {}) } }, composer: { ...d.composer, ...(l.composer || {}) }, urls: { ...(l.urls || {}) } };
+  for (const a of RAIL_AREAS) out.areas[a] = { apps: [...(out.areas[a]?.apps || [])], active: out.areas[a]?.active ?? null };
+  return out;
+}
 
-const areaEl = (a) => $(`.area[data-area="${a}"]`);
+let L = normalize(await os.layout.get());
+let dips = (await os.dips.get()) || structuredClone(DEFAULT_DIPS);
+const inst = new Map(); // app id → { el, api }
+
 let saveTimer;
 const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => {
-  for (const [id, i] of inst) if (i.api?.url) L.urls[id] = i.api.url();
+  for (const [id, i] of inst) { try { if (i.api?.url) L.urls[id] = i.api.url(); } catch { /* gone */ } }
   os.layout.set(L);
 }, 400); };
+
+let slideSeq = Date.now();
+const newSlideId = () => "s" + (slideSeq++).toString(36);
+
+// where an app lives: { area } | { slide, cell? }
+function whereIs(id) {
+  for (const a of RAIL_AREAS) if (L.areas[a].apps.includes(id)) return { area: a };
+  for (const s of L.center.slides) {
+    if (s.kind === "app" && s.app === id) return { slide: s.id };
+    if (s.kind === "layout") { const i = s.cells.findIndex((c) => c.app === id); if (i >= 0) return { slide: s.id, cell: i }; }
+  }
+  return null;
+}
+const isOpen = (id) => !!whereIs(id);
+
+function removeFromState(id) {
+  for (const a of RAIL_AREAS) {
+    const st = L.areas[a];
+    if (st.apps.includes(id)) { st.apps = st.apps.filter((x) => x !== id); if (st.active === id) st.active = st.apps[0] || null; }
+  }
+  const before = L.center.slides.length;
+  const curId = L.center.slides[L.center.index - 1]?.id;
+  L.center.slides = L.center.slides.filter((s) => !(s.kind === "app" && s.app === id));
+  for (const s of L.center.slides) if (s.kind === "layout") for (const c of s.cells) if (c.app === id) c.app = null;
+  if (L.center.slides.length !== before) {
+    const i = L.center.slides.findIndex((s) => s.id === curId);
+    L.center.index = i >= 0 ? i + 1 : Math.min(L.center.index, L.center.slides.length);
+  }
+}
+
+/** Put an app at a place in the state. `to`: an area name, "center", or { slide, cell }. */
+function addToState(id, to) {
+  if (typeof to === "string" && RAIL_AREAS.includes(to)) {
+    L.areas[to].apps.push(id); L.areas[to].active = id; L.rails[railOf(to)].open = true;
+  } else if (to && typeof to === "object") {
+    const s = L.center.slides.find((x) => x.id === to.slide);
+    if (!s || s.kind !== "layout" || !s.cells[to.cell]) throw new Error("that layout cell is gone");
+    const prev = s.cells[to.cell].app;
+    if (prev && prev !== id) closeApp(prev, true);
+    s.cells[to.cell].app = id;
+    L.center.index = L.center.slides.indexOf(s) + 1;
+  } else {
+    L.center.slides.push({ id: newSlideId(), kind: "app", app: id });
+    L.center.index = L.center.slides.length;
+  }
+}
 
 function ctxFor(id) {
   return {
     cwd: settings.cwd, url: L.urls?.[id], toast,
     ask: (t) => send(t),
-    open: (app, area, url) => openApp(app, area, url),
+    open: (app, to, url) => openApp(app, to, url),
     openFile: (p) => openFile(p),
     changed: save,
     connections: setConnDots,
   };
 }
 
-function ensureInstance(id) {
-  if (inst.has(id)) return inst.get(id);
-  if (!APPS[id]) throw new Error(`no app "${id}" — apps: ${Object.keys(APPS).filter((k) => !APPS[k].adhoc).join(", ")}`);
-  const el = document.createElement("div");
-  el.className = "panel"; el.dataset.app = id;
-  const rec = { el, api: null, area: null };
-  inst.set(id, rec);
+function instance(id) {
+  let rec = inst.get(id);
+  if (!rec) {
+    const el = document.createElement("div");
+    el.className = "panel"; el.dataset.app = id;
+    rec = { el, api: null };
+    inst.set(id, rec);
+  }
   return rec;
 }
 
-function place(id, area) {
-  const rec = ensureInstance(id);
-  const wv = rec.el.querySelector("webview");
-  if (wv && rec.api?.url) { try { wv.setAttribute("src", rec.api.url()); } catch { /* not loaded */ } }
-  if (area === "center") {
-    const slide = document.createElement("div");
-    slide.className = "slide"; slide.dataset.app = id;
-    const inner = document.createElement("div"); inner.className = "slide-inner";
-    slide.append(inner); inner.append(rec.el);
-    rec.el.classList.add("active");
-    $(".track").append(slide);
-  } else {
-    areaEl(area).querySelector(".area-body").append(rec.el);
+/** Move an app's element under `parent` (only if it isn't there: moving a webview reloads it). */
+function attach(id, parent) {
+  const rec = instance(id);
+  if (rec.el.parentElement !== parent) {
+    const wv = rec.el.querySelector("webview");
+    if (wv && rec.api?.url) { try { wv.setAttribute("src", rec.api.url()); } catch { /* not loaded */ } }
+    parent.append(rec.el);
   }
-  rec.area = area;
-  if (!rec.api) {
-    try { rec.api = mountApp(id, rec.el, ctxFor(id)) || {}; } catch (e) { toast(e.message, true); rec.api = {}; }
-  }
-  requestAnimationFrame(() => rec.api.layout?.());
+  if (!rec.api) { try { rec.api = mountApp(id, rec.el, ctxFor(id)) || {}; } catch (e) { toast(e.message, true); rec.api = {}; } }
+  return rec;
 }
 
+// ── rendering ─────────────────────────────────────────────────────────
+const areaEl = (a) => $(`.area[data-area="${a}"]`);
+const appDef = (id) => (id === "face" ? { icon: "◈", title: "Glyphh" } : APPS[id] || { icon: "◌", title: id });
+
 function render() {
-  // tabs
-  for (const a of AREAS) {
-    const nav = areaEl(a).querySelector(".tabs");
-    nav.innerHTML = "";
-    const st = L.areas[a];
-    if (a === "center") nav.append(tabChip("face", "center", st.index === 0));
-    st.apps.forEach((id, i) => nav.append(tabChip(id, a, a === "center" ? st.index === i + 1 : st.active === id)));
-    if (a !== "center") {
-      areaEl(a).classList.toggle("empty", !st.apps.length);
-      for (const id of st.apps) inst.get(id)?.el.classList.toggle("active", id === st.active);
+  // rails
+  const stage = $("#stage");
+  for (const r of ["left", "right"]) {
+    const R = L.rails[r], rail = $(`.rail[data-rail="${r}"]`);
+    rail.classList.toggle("collapsed", !R.open);
+    stage.style.setProperty("--" + r, (R.open ? R.w : 46) + "px");
+    const top = L.areas[r], bottom = L.areas[r + "-bottom"];
+    const both = top.apps.length && bottom.apps.length;
+    areaEl(r).style.setProperty("--grow", both ? R.split : 1);
+    areaEl(r + "-bottom").style.setProperty("--grow", both ? 1 - R.split : 1);
+    rail.querySelector(".hsplit").style.display = both ? "" : "none";
+    const mini = rail.querySelector(".rail-mini"); mini.innerHTML = "";
+    mini.append(btn("⇤⇥".charAt(r === "left" ? 1 : 0), "Expand", () => setRail(r, true)));
+    for (const a of [r, r + "-bottom"]) {
+      if (L.areas[a].apps.length) mini.append(document.createElement("hr"));
+      for (const id of L.areas[a].apps) mini.append(btn(appDef(id).icon, appDef(id).title, () => { setRail(r, true); focusApp(id); }));
     }
   }
-  // carousel
-  const slides = $$(".track > .slide");
-  const order = ["face", ...L.areas.center.apps];
-  for (const s of slides) s.style.order = String(order.indexOf(s.dataset.app));
-  L.areas.center.index = Math.max(0, Math.min(L.areas.center.index, order.length - 1));
-  $(".track").style.transform = `translateX(${-L.areas.center.index * 100}%)`;
+  stage.classList.toggle("composer-closed", !L.composer.open);
+  $("#composer").hidden = !L.composer.open;
+  $("#glyphh-pill").hidden = L.composer.open;
+
+  // rail areas
+  for (const a of RAIL_AREAS) {
+    const st = L.areas[a], el = areaEl(a), nav = el.querySelector(".tabs"), body = el.querySelector(".area-body");
+    el.classList.toggle("empty", !st.apps.length);
+    nav.innerHTML = "";
+    for (const id of st.apps) nav.append(tabChip(id, st.active === id));
+    nav.append(spacer(), iconBtn("+", "Add a tab here", () => openLauncher({ to: a })));
+    if (!a.endsWith("-bottom")) nav.append(iconBtn(a === "left" ? "⇤" : "⇥", "Collapse", () => setRail(a, false)));
+    for (const id of st.apps) attach(id, body).el.classList.toggle("active", id === st.active);
+  }
+
+  // center slides
+  const track = $(".track");
+  const keep = new Set(["face"]);
+  L.center.slides.forEach((s, i) => {
+    keep.add(s.id);
+    let slide = track.querySelector(`.slide[data-slide="${s.id}"]`);
+    if (!slide) {
+      slide = document.createElement("div"); slide.className = "slide"; slide.dataset.slide = s.id;
+      track.append(slide);
+    }
+    slide.style.order = String(i + 1);
+    if (s.kind === "app") {
+      let inner = slide.querySelector(":scope > .slide-inner");
+      if (!inner) { slide.innerHTML = ""; inner = document.createElement("div"); inner.className = "slide-inner"; slide.append(inner); }
+      attach(s.app, inner).el.classList.add("active");
+    } else renderLayoutSlide(slide, s);
+  });
+  for (const slide of $$(".track > .slide")) {
+    const id = slide.dataset.slide || "face";
+    if (!keep.has(id)) { for (const p of $$(".panel", slide)) if (!isOpen(p.dataset.app)) p.remove(); slide.remove(); }
+  }
+  $(".face-slide").style.order = "0";
+  L.center.index = Math.max(0, Math.min(L.center.index, L.center.slides.length));
+  track.style.transform = `translateX(${-L.center.index * 100}%)`;
+
+  // center tabs + dots
+  const nav = $(".center-tabs"); nav.innerHTML = "";
+  const order = [{ id: "face", label: appDef("face") }, ...L.center.slides.map((s) => ({ id: s.id, label: s.kind === "app" ? appDef(s.app) : { icon: "▦", title: s.name || "Layout" }, slide: s }))];
+  order.forEach((o, i) => {
+    const t = document.createElement("div");
+    t.className = "tab" + (i === L.center.index ? " active" : "");
+    t.innerHTML = `<span>${o.label.icon}</span><span>${esc(o.label.title)}</span>`;
+    t.onclick = () => go(i);
+    if (o.slide) {
+      if (o.slide.kind === "app") { t.draggable = true; t.ondragstart = (e) => dragApp(e, o.slide.app); }
+      const x = document.createElement("span"); x.className = "x"; x.textContent = "✕";
+      x.onclick = (e) => { e.stopPropagation(); closeSlide(o.slide.id); }; t.append(x);
+    }
+    nav.append(t);
+  });
+  nav.append(iconBtn("+", "Open an app or a layout in the center", () => openLauncher({ to: "center" })));
   const dots = $(".dots"); dots.innerHTML = "";
-  order.forEach((id, i) => { const d = document.createElement("i"); d.className = i === L.areas.center.index ? "on" : ""; d.title = id === "face" ? "Glyphh" : APPS[id]?.title; d.onclick = () => go(i); dots.append(d); });
-  $("#composer").classList.toggle("over-app", L.areas.center.index > 0);
-  // sizes
-  $("#stage").style.setProperty("--left", (L.areas.left.apps.length ? L.sizes.left : 0) + "px");
-  $("#stage").style.setProperty("--right", (L.areas.right.apps.length ? L.sizes.right : 0) + "px");
-  for (const a of ["left", "right"]) areaEl(a).style.visibility = L.sizes[a] > 30 && L.areas[a].apps.length ? "" : "hidden";
+  order.forEach((o, i) => { const d = document.createElement("i"); d.className = i === L.center.index ? "on" : ""; d.title = o.label.title; d.onclick = () => go(i); dots.append(d); });
+
   for (const [, r] of inst) requestAnimationFrame(() => r.api?.layout?.());
   save();
 }
 
-function tabChip(id, area, active) {
+function renderLayoutSlide(slide, s) {
+  let grid = slide.querySelector(":scope > .slide-grid");
+  if (!grid) { slide.innerHTML = ""; grid = document.createElement("div"); grid.className = "slide-grid"; slide.append(grid); }
+  const widths = s.colWidths?.length === s.cols ? s.colWidths : Array(s.cols).fill(1);
+  grid.style.gridTemplateColumns = widths.map((w) => w + "fr").join(" ");
+  grid.style.gridTemplateRows = `repeat(${s.rows}, 1fr)`;
+  const cells = $$(":scope > .cell", grid);
+  for (const c of cells.slice(s.cells.length)) { for (const p of $$(".panel", c)) if (!isOpen(p.dataset.app)) p.remove(); c.remove(); }
+  s.cells.forEach((c, i) => {
+    let box = grid.querySelector(`:scope > .cell[data-i="${i}"]`);
+    if (!box) {
+      box = document.createElement("div"); box.className = "cell"; box.dataset.i = i;
+      box.innerHTML = `<div class="cell-head"><span class="n"></span><button title="Remove">✕</button></div><div class="cell-body"></div><div class="cell-empty"><button>+ Add an app</button></div>`;
+      box.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/os-app")) { e.preventDefault(); box.classList.add("drop"); } });
+      box.addEventListener("dragleave", () => box.classList.remove("drop"));
+      box.addEventListener("drop", (e) => { e.preventDefault(); e.stopPropagation(); box.classList.remove("drop"); const id = e.dataTransfer.getData("text/os-app"); if (id) moveApp(id, { slide: s.id, cell: Number(box.dataset.i) }); });
+      grid.append(box);
+    }
+    box.style.gridColumn = `${c.col + 1} / span ${c.colSpan || 1}`;
+    box.style.gridRow = `${c.row + 1} / span ${c.rowSpan || 1}`;
+    const head = box.querySelector(".cell-head"), body = box.querySelector(".cell-body"), empty = box.querySelector(".cell-empty");
+    head.hidden = body.hidden = !c.app; empty.hidden = !!c.app;
+    empty.querySelector("button").onclick = () => openLauncher({ to: { slide: s.id, cell: i } });
+    if (c.app) {
+      head.querySelector(".n").textContent = `${appDef(c.app).icon}  ${appDef(c.app).title}`;
+      head.querySelector("button").onclick = () => closeApp(c.app);
+      head.draggable = true; head.ondragstart = (e) => dragApp(e, c.app);
+      const rec = attach(c.app, body); rec.el.classList.add("active");
+    }
+  });
+}
+
+function btn(label, title, onclick) { const b = document.createElement("button"); b.textContent = label; b.title = title; b.onclick = onclick; return b; }
+function iconBtn(label, title, onclick) { const b = btn(label, title, onclick); b.className = "tb-icon"; return b; }
+function spacer() { const s = document.createElement("span"); s.className = "spacer"; return s; }
+function dragApp(e, id) { e.dataTransfer.setData("text/os-app", id); e.dataTransfer.effectAllowed = "move"; }
+
+function tabChip(id, active) {
   const t = document.createElement("div");
   t.className = "tab" + (active ? " active" : "");
-  t.draggable = id !== "face";
-  const def = id === "face" ? { icon: "◈", title: "Glyphh" } : APPS[id];
-  t.innerHTML = `<span>${def?.icon || "◌"}</span><span>${def?.title || id}</span>`;
-  if (id !== "face") { const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.onclick = (e) => { e.stopPropagation(); closeApp(id); }; t.append(x); }
+  t.draggable = true;
+  t.innerHTML = `<span>${appDef(id).icon}</span><span>${esc(appDef(id).title)}</span>`;
+  const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.onclick = (e) => { e.stopPropagation(); closeApp(id); }; t.append(x);
   t.onclick = () => focusApp(id);
-  t.ondragstart = (e) => { e.dataTransfer.setData("text/os-app", id); e.dataTransfer.effectAllowed = "move"; };
+  t.ondragstart = (e) => dragApp(e, id);
   return t;
 }
 
-function areaOf(id) { return AREAS.find((a) => L.areas[a].apps.includes(id)); }
+// ── actions ───────────────────────────────────────────────────────────
+const appList = () => Object.keys(APPS).filter((k) => !APPS[k].adhoc).join(", ");
+function resolveApp(id, url) {
+  if (/^https?:\/\/|^[\w-]+\.[a-z]{2,}(\/|$)/i.test(id)) return { id: webAppFor(id), url: url || id };
+  if (!APPS[id]) { const byName = Object.keys(APPS).find((k) => APPS[k].title.toLowerCase() === String(id).toLowerCase()); if (byName) return { id: byName, url }; }
+  if (!APPS[id]) throw new Error(`no app "${id}" — apps: ${appList()}`);
+  return { id, url };
+}
+const toName = (to) => (typeof to === "object" ? "a layout cell" : to);
 
-function openApp(id, area, url) {
-  if (/^https?:\/\/|^[\w-]+\.[a-z]{2,}(\/|$)/i.test(id)) { url = url || id; id = webAppFor(id); }
-  if (!APPS[id]) throw new Error(`no app "${id}" — apps: ${Object.keys(APPS).filter((k) => !APPS[k].adhoc).join(", ")}`);
-  const cur = areaOf(id);
-  if (cur && (!area || area === cur)) { focusApp(id); if (url) inst.get(id)?.api?.goto?.(url); return `${id} is open in ${cur}`; }
-  if (cur) { const r = moveApp(id, area); if (url) setTimeout(() => inst.get(id)?.api?.goto?.(url), 300); return r; }
-  area = area || (APPS[id].group === "social" || APPS[id].web ? "center" : "right");
+function openApp(appIn, to, urlIn) {
+  const { id, url } = resolveApp(appIn, urlIn);
+  if (isOpen(id) && !to) { focusApp(id); if (url) inst.get(id)?.api?.goto?.(url); return `${id} is already open`; }
+  if (isOpen(id)) { const r = moveApp(id, to); if (url) setTimeout(() => inst.get(id)?.api?.goto?.(url), 300); return r; }
+  to = to || APPS[id].area || (APPS[id].web ? "center" : "right");
   if (url) L.urls[id] = url;
-  L.areas[area].apps.push(id);
-  if (area === "center") L.areas.center.index = L.areas.center.apps.length; else L.areas[area].active = id;
-  if (area === "center" && L.sizes) { /* nothing */ }
-  if (area !== "center" && L.sizes[area] < 200) L.sizes[area] = area === "left" ? 380 : 440;
-  place(id, area);
+  addToState(id, to);
   render();
-  return `opened ${id} in ${area}`;
+  return `opened ${id} in ${toName(to)}`;
 }
 
-function closeApp(id) {
-  const a = areaOf(id); if (!a) return `${id} is not open`;
-  const st = L.areas[a];
-  st.apps = st.apps.filter((x) => x !== id);
-  if (a !== "center" && st.active === id) st.active = st.apps[0] || null;
-  if (a === "center") L.areas.center.index = Math.min(L.areas.center.index, st.apps.length);
+function closeApp(id, quiet) {
+  if (!isOpen(id) && !inst.has(id)) return `${id} is not open`;
+  removeFromState(id);
   const rec = inst.get(id);
-  rec?.api?.unmount?.();
-  rec?.el.closest(".slide")?.remove(); rec?.el.remove();
-  inst.delete(id);
-  delete L.urls[id];
-  render();
+  rec?.api?.unmount?.(); rec?.el.remove();
+  inst.delete(id); delete L.urls[id];
+  if (!quiet) render();
   return `closed ${id}`;
 }
 
-function moveApp(id, area) {
-  const from = areaOf(id); if (!from) return openApp(id, area);
-  if (from === area) return focusApp(id);
-  const st = L.areas[from];
-  st.apps = st.apps.filter((x) => x !== id);
-  if (from !== "center" && st.active === id) st.active = st.apps[0] || null;
-  const rec = inst.get(id);
-  const oldSlide = rec.el.closest(".slide");
-  rec.el.classList.remove("active");
-  L.areas[area].apps.push(id);
-  if (area === "center") L.areas.center.index = L.areas.center.apps.length; else { L.areas[area].active = id; if (L.sizes[area] < 200) L.sizes[area] = area === "left" ? 380 : 440; }
-  place(id, area);
-  oldSlide?.remove();
+function closeSlide(slideId) {
+  const s = L.center.slides.find((x) => x.id === slideId); if (!s) return "no such slide";
+  const apps = s.kind === "app" ? [s.app] : s.cells.map((c) => c.app).filter(Boolean);
+  L.center.slides = L.center.slides.filter((x) => x !== s);
+  for (const id of apps) closeApp(id, true);
   render();
-  return `moved ${id} to ${area}`;
+  return `closed ${s.kind === "app" ? s.app : s.name || "layout"}`;
 }
 
-function focusApp(id) {
-  if (id === "face") { go(0); return "showing the face"; }
-  const a = areaOf(id); if (!a) return openApp(id);
-  if (a === "center") go(L.areas.center.apps.indexOf(id) + 1);
-  else { L.areas[a].active = id; render(); }
+function moveApp(appIn, to) {
+  const { id } = resolveApp(appIn);
+  if (!isOpen(id)) return openApp(id, to);
+  if (to === "center" && whereIs(id).slide && whereIs(id).cell === undefined) return focusApp(id);
+  if (typeof to === "string" && whereIs(id).area === to) return focusApp(id);
+  instance(id).el.classList.remove("active");
+  removeFromState(id);
+  addToState(id, to);
+  render();
+  return `moved ${id} to ${toName(to)}`;
+}
+
+function focusApp(appIn) {
+  if (appIn === "face") { go(0); return "showing the face"; }
+  const { id } = resolveApp(appIn);
+  const w = whereIs(id); if (!w) return openApp(id);
+  if (w.area) { L.areas[w.area].active = id; L.rails[railOf(w.area)].open = true; render(); }
+  else go(L.center.slides.findIndex((s) => s.id === w.slide) + 1);
   inst.get(id)?.api?.focus?.();
   return `focused ${id}`;
 }
 
-function go(i) { L.areas.center.index = i; render(); }
-const step = (d) => go(Math.max(0, Math.min(L.areas.center.apps.length, L.areas.center.index + d)));
+function setRail(r, open) { L.rails[railOf(r)].open = open; render(); return `${railOf(r)} rail ${open ? "open" : "collapsed"}`; }
+
+function go(i) { L.center.index = i; render(); }
+const step = (d) => go(Math.max(0, Math.min(L.center.slides.length, L.center.index + d)));
 
 async function openFile(p, line) {
-  if (!areaOf("editor")) openApp("editor", "center"); else focusApp("editor");
+  if (!isOpen("editor")) openApp("editor", "center"); else focusApp("editor");
   return inst.get("editor").api.openFile(p, line);
 }
 
+/** Open a layout as a new center slide. Apps already open elsewhere move into it. */
+function openLayout(spec) {
+  const s = { id: newSlideId(), kind: "layout", name: spec.name || "Layout", cols: spec.cols, rows: spec.rows, colWidths: spec.colWidths, cells: spec.cells.map((c) => ({ ...c })) };
+  for (const c of s.cells) {
+    if (!c.app) continue;
+    try { c.app = resolveApp(c.app).id; } catch { c.app = null; continue; }
+    if (isOpen(c.app)) { instance(c.app).el.classList.remove("active"); removeFromState(c.app); }
+  }
+  L.center.slides.push(s);
+  L.center.index = L.center.slides.length;
+  render();
+  return `opened the ${s.name} layout`;
+}
+
+function layoutFromArgs(a) {
+  if (a.name === "list") return "layouts: " + Object.keys(allLayouts()).join(", ");
+  if (a.name) {
+    const key = Object.keys(allLayouts()).find((k) => k === slugify(a.name) || allLayouts()[k].name.toLowerCase() === a.name.toLowerCase());
+    if (!key) throw new Error(`no layout "${a.name}" — layouts: ${Object.keys(allLayouts()).join(", ")}`);
+    const t = structuredClone(allLayouts()[key]);
+    if (a.apps?.length) t.cells.forEach((c, i) => { if (a.apps[i]) c.app = a.apps[i]; });
+    return openLayout(t);
+  }
+  const apps = a.apps || [];
+  const cols = a.cols || Math.min(3, Math.max(1, apps.length)), rows = a.rows || Math.max(1, Math.ceil(apps.length / cols));
+  const cells = []; for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push(cell(apps[r * cols + c] || null, c, r));
+  return openLayout({ name: "Layout", cols, rows, cells });
+}
+
 function applyLayout(next) {
-  for (const id of [...inst.keys()]) closeApp(id);
-  L = { ...structuredClone(DEFAULT_LAYOUT), ...structuredClone(next), urls: { ...(next.urls || {}) } };
-  L.sizes = { ...DEFAULT_LAYOUT.sizes, ...(next.sizes || {}) };
-  for (const a of AREAS) for (const id of L.areas[a].apps) { try { place(id, a); } catch (e) { toast(e.message, true); } }
-  for (const a of AREAS) L.areas[a].apps = L.areas[a].apps.filter((id) => inst.has(id));
+  for (const id of [...inst.keys()]) closeApp(id, true);
+  const n = normalize({ ...structuredClone(DEFAULT_LAYOUT), ...structuredClone(next), rails: next.rails || L.rails, composer: L.composer });
+  L = n;
+  for (const s of L.center.slides) s.id = newSlideId();
+  for (const a of RAIL_AREAS) L.areas[a].apps = L.areas[a].apps.filter((id) => APPS[id]);
   render();
 }
 
@@ -207,8 +411,8 @@ function dip(name, saveIt) {
   name = (name || "").trim().toLowerCase();
   if (!name || name === "list") return "dips: " + Object.keys(dips).join(", ");
   if (saveIt) {
-    for (const [id, i] of inst) if (i.api?.url) L.urls[id] = i.api.url();
-    dips[name] = structuredClone({ areas: L.areas, sizes: L.sizes, urls: L.urls });
+    for (const [id, i] of inst) { try { if (i.api?.url) L.urls[id] = i.api.url(); } catch { /* gone */ } }
+    dips[name] = structuredClone({ areas: L.areas, center: L.center, rails: L.rails, urls: L.urls });
     os.dips.set(dips); return `saved dip "${name}"`;
   }
   if (!dips[name]) return `no dip "${name}" — dips: ${Object.keys(dips).join(", ")}`;
@@ -217,32 +421,44 @@ function dip(name, saveIt) {
 }
 
 // ── drag between areas ────────────────────────────────────────────────
-for (const a of AREAS) {
-  const el = areaEl(a);
+for (const a of AREA_NAMES) {
+  const el = a === "center" ? $(".area.center") : areaEl(a);
   el.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/os-app")) { e.preventDefault(); el.classList.add("drop"); } });
   el.addEventListener("dragleave", (e) => { if (!el.contains(e.relatedTarget)) el.classList.remove("drop"); });
   el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("drop"); const id = e.dataTransfer.getData("text/os-app"); if (id) moveApp(id, a); });
 }
-// webviews eat drag events; let the drag pass over them
 document.addEventListener("dragstart", () => document.body.classList.add("dragging-tab"));
-document.addEventListener("dragend", () => { document.body.classList.remove("dragging-tab"); $$(".area.drop").forEach((x) => x.classList.remove("drop")); });
+document.addEventListener("dragend", () => { document.body.classList.remove("dragging-tab"); $$(".drop").forEach((x) => x.classList.remove("drop")); });
 const dragStyle = document.createElement("style"); dragStyle.textContent = "body.dragging-tab webview, body.splitting webview { pointer-events: none; }"; document.head.append(dragStyle);
 
-// ── splitters ─────────────────────────────────────────────────────────
-for (const s of $$(".splitter")) {
-  s.addEventListener("pointerdown", (e) => {
-    const side = s.dataset.split; const x0 = e.clientX; const w0 = L.areas[side].apps.length ? L.sizes[side] : 0;
-    s.setPointerCapture(e.pointerId); s.classList.add("drag"); document.body.classList.add("splitting");
-    const move = (ev) => {
-      const dx = ev.clientX - x0;
-      L.sizes[side] = Math.max(0, Math.min(innerWidth * 0.6, w0 + (side === "left" ? dx : -dx)));
-      if (L.sizes[side] < 120) L.sizes[side] = 0;
-      render();
-    };
-    const up = () => { s.classList.remove("drag"); document.body.classList.remove("splitting"); s.removeEventListener("pointermove", move); s.removeEventListener("pointerup", up); };
-    s.addEventListener("pointermove", move); s.addEventListener("pointerup", up);
+// ── splitters: rail widths and the top/bottom split ───────────────────
+function dragger(el, onMove) {
+  el.addEventListener("pointerdown", (e) => {
+    el.setPointerCapture(e.pointerId); el.classList.add("drag"); document.body.classList.add("splitting");
+    const start = { x: e.clientX, y: e.clientY };
+    const move = (ev) => onMove(ev, start);
+    const up = () => { el.classList.remove("drag"); document.body.classList.remove("splitting"); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
+    el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
   });
-  s.addEventListener("dblclick", () => { const side = s.dataset.split; L.sizes[side] = L.sizes[side] ? 0 : side === "left" ? 380 : 440; render(); });
+}
+for (const s of $$(".splitter")) {
+  const side = s.dataset.split;
+  let w0 = 0;
+  s.addEventListener("pointerdown", () => { w0 = L.rails[side].open ? L.rails[side].w : 46; });
+  dragger(s, (ev, st) => {
+    const dx = ev.clientX - st.x, w = w0 + (side === "left" ? dx : -dx);
+    if (w < 140) { L.rails[side].open = false; } else { L.rails[side].open = true; L.rails[side].w = Math.min(innerWidth * 0.55, w); }
+    render();
+  });
+  s.addEventListener("dblclick", () => setRail(side, !L.rails[side].open));
+}
+for (const h of $$(".hsplit")) {
+  const r = h.dataset.rail;
+  dragger(h, (ev) => {
+    const rail = $(`.rail[data-rail="${r}"]`).getBoundingClientRect();
+    L.rails[r].split = Math.max(0.15, Math.min(0.85, (ev.clientY - rail.top) / rail.height));
+    render();
+  });
 }
 
 // ── carousel swipes: trackpad, drag, keys ─────────────────────────────
@@ -256,7 +472,7 @@ $(".carousel").addEventListener("wheel", (e) => {
 for (const grip of [$(".face-slide"), ...$$(".swipe-edge")]) {
   grip.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
-    const x0 = e.clientX, w = $(".carousel").clientWidth, base = -L.areas.center.index * w;
+    const x0 = e.clientX, w = $(".carousel").clientWidth, base = -L.center.index * w;
     const track = $(".track"); let dx = 0;
     grip.setPointerCapture(e.pointerId); track.classList.add("dragging"); document.body.classList.add("splitting");
     const move = (ev) => { dx = ev.clientX - x0; track.style.transform = `translateX(${base + dx}px)`; };
@@ -271,7 +487,8 @@ for (const grip of [$(".face-slide"), ...$$(".swipe-edge")]) {
 document.addEventListener("keydown", (e) => {
   if (e.metaKey && e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); step(e.key === "ArrowLeft" ? -1 : 1); }
   if (e.metaKey && e.key === ",") { e.preventDefault(); openSettings(); }
-  if (e.metaKey && e.key.toLowerCase() === "k") { e.preventDefault(); $("#input").focus(); }
+  if (e.metaKey && e.key.toLowerCase() === "k") { e.preventDefault(); setComposer(true); }
+  if (e.metaKey && e.key.toLowerCase() === "b") { e.preventDefault(); setRail(e.shiftKey ? "right" : "left", !L.rails[e.shiftKey ? "right" : "left"].open); }
   if (e.key === "Escape") { $$(".modal").forEach((m) => { if (m.id !== "perm") m.hidden = true; }); if (voice.speaking) voice.stopSpeaking(); }
 });
 
@@ -280,7 +497,7 @@ const face = createFace($("#face"));
 let busy = false, recording = false, continuous = false, speakReplies = settings.speakReplies;
 const updateFace = () => face.setState(recording || (continuous && !voice.speaking && !busy) ? "listening" : voice.speaking ? "speaking" : busy ? "thinking" : "idle");
 const voice = createVoice({
-  onMouth: (v) => face.setMouth(v),
+  onMouth: (v) => { face.setMouth(v); $("#pill-level").style.transform = `scaleX(${Math.max(0.05, v)})`; },
   onMic: (v) => { face.setMic(v); $("#mic-level i").style.width = v * 100 + "%"; },
   onUtterance: (t) => { send(t); },
   onSpeaking: () => updateFace(),
@@ -298,6 +515,9 @@ $("#btn-send").onclick = submit;
 $("#btn-log").onclick = () => log.classList.toggle("collapsed");
 $("#btn-stop").onclick = () => { os.agent.interrupt(); voice.stopSpeaking(); };
 $("#btn-new").onclick = () => { os.agent.newChat(); log.innerHTML = ""; caption(""); toast("New conversation"); };
+function setComposer(open) { L.composer.open = open; render(); if (open) setTimeout(() => input.focus(), 50); }
+$("#btn-close-composer").onclick = () => setComposer(false);
+$("#glyphh-pill").onclick = () => setComposer(true);
 
 const mic = $("#btn-mic");
 let pttDown = 0;
@@ -332,19 +552,22 @@ function submit() {
   send(t);
 }
 
-/** .dip / .open / .close / .move run here; everything else goes to Claude. */
+const areaArg = (a) => a.find((x) => AREA_NAMES.includes(x));
+/** .dip / .open / .close / .move / .layout / .rail run here; everything else goes to Claude. */
 function localCommand(t) {
-  const m = t.match(/^[./](dip|open|close|move|face|new|settings)\b\s*(.*)$/i);
+  const m = t.match(/^[./](dip|open|close|move|face|new|settings|layout|rail)\b\s*(.*)$/i);
   if (!m) return null;
   const [, cmd, rest] = m; const a = rest.trim().split(/\s+/).filter(Boolean);
   switch (cmd.toLowerCase()) {
     case "dip": return a[0] === "save" ? dip(a[1] || "mine", true) : a[0] === "delete" ? (delete dips[a[1]], os.dips.set(dips), `deleted ${a[1]}`) : dip(a[0] || "list");
-    case "open": return openApp(a[0], AREAS.includes(a[1]) ? a[1] : undefined, a.find((x) => /^https?:|\./.test(x) && x !== a[0]));
-    case "close": return closeApp(a[0]);
+    case "open": return openApp(a[0], areaArg(a.slice(1)), a.slice(1).find((x) => /^https?:|\./.test(x)));
+    case "close": return closeApp(resolveApp(a[0]).id);
     case "move": return moveApp(a[0], a[1]);
     case "face": return focusApp("face");
     case "new": $("#btn-new").click(); return "new conversation";
     case "settings": openSettings(); return "settings";
+    case "layout": return a.length > 1 ? layoutFromArgs({ apps: a }) : layoutFromArgs({ name: a[0] || "list" });
+    case "rail": return setRail(a[0] || "left", a[1] ? a[1] !== "close" : !L.rails[a[0] || "left"].open);
   }
 }
 
@@ -375,7 +598,7 @@ os.agent.onEvent((e) => {
       break;
     case "tool": {
       const short = e.name.replace(/^mcp__os__/, "").replace(/^mcp__/, "");
-      const arg = e.input && (e.input.app || e.input.command || e.input.file_path || e.input.path || e.input.url || e.input.pattern || e.input.query || e.input.description || "");
+      const arg = e.input && (e.input.app || e.input.command || e.input.file_path || e.input.path || e.input.url || e.input.pattern || e.input.query || e.input.name || e.input.description || "");
       addMsg("tool", `${short}${arg ? " · " + String(arg).slice(0, 120) : ""}`);
       if (speakReplies) voice.flush();
       botMsg = null; botText = "";
@@ -407,7 +630,7 @@ os.agent.onPermission(({ id, name, input: inp }) => {
   const m = $("#perm"); m.hidden = false;
   $("#perm-name").textContent = name.replace(/^mcp__/, "");
   $("#perm-input").textContent = JSON.stringify(inp, null, 2).slice(0, 4000);
-  if (speakReplies) voice.feed(`I need your OK to use ${name.replace(/^mcp__\w+__/, "").replace(/_/g, " ")}. `), voice.flush();
+  if (speakReplies && settings.elevenKeySet) { voice.feed(`I need your OK to use ${name.replace(/^mcp__\w+__/, "").replace(/_/g, " ")}. `); voice.flush(); }
   const done = (ok) => { m.hidden = true; os.agent.answerPermission(id, ok); $("#perm-yes").onclick = $("#perm-no").onclick = null; };
   $("#perm-yes").onclick = () => done(true);
   $("#perm-no").onclick = () => done(false);
@@ -416,17 +639,21 @@ os.agent.onPermission(({ id, name, input: inp }) => {
 // ── the agent's hands ─────────────────────────────────────────────────
 const handlers = {
   state: () => ({
-    areas: Object.fromEntries(AREAS.map((a) => [a, { apps: L.areas[a].apps, ...(a === "center" ? { slide: ["face", ...L.areas.center.apps][L.areas.center.index] } : { active: L.areas[a].active }) }])),
+    rails: Object.fromEntries(["left", "right"].map((r) => [r, { open: L.rails[r].open, top: L.areas[r], bottom: L.areas[r + "-bottom"] }])),
+    center: { slide: L.center.index === 0 ? "face" : L.center.slides[L.center.index - 1], slides: L.center.slides },
     available: Object.keys(APPS).filter((k) => !APPS[k].adhoc),
+    layouts: Object.keys(allLayouts()),
     dips: Object.keys(dips),
     editor: inst.get("editor")?.api?.files?.() || [],
   }),
   open: (a) => openApp(a.app, a.area, a.url),
-  close: (a) => closeApp(a.app),
+  close: (a) => closeApp(resolveApp(a.app).id),
   move: (a) => moveApp(a.app, a.area),
   focus: (a) => focusApp(a.app),
+  layout: (a) => layoutFromArgs(a),
+  rail: (a) => setRail(a.rail, a.open),
   dip: (a) => dip(a.name, a.save),
-  terminal: async () => { if (!areaOf("terminal")) openApp("terminal", "right"); else focusApp("terminal"); await new Promise((r) => setTimeout(r, 600)); return inst.get("terminal").api.termId; },
+  terminal: async () => { if (!isOpen("terminal")) openApp("terminal", "right-bottom"); else focusApp("terminal"); await new Promise((r) => setTimeout(r, 600)); return inst.get("terminal").api.termId; },
   edit: (a) => openFile(a.path, a.line),
   screenshot: () => os.screenshot(),
   toast: (a) => toast(a.message),
@@ -435,19 +662,149 @@ os.onCmd(async ({ id, cmd, args }) => {
   try { os.cmdResult({ id, ok: true, value: await handlers[cmd](args || {}) }); }
   catch (e) { os.cmdResult({ id, ok: false, error: e.message }); }
 });
-os.onOpenUrl((url) => openApp("browser", areaOf("browser"), url));
+os.onOpenUrl((url) => openApp("browser", undefined, url));
 
-// ── launcher ──────────────────────────────────────────────────────────
-$("#btn-apps").onclick = () => {
-  const g = $("#launcher .grid"); g.innerHTML = "";
-  for (const [id, def] of Object.entries(APPS)) {
-    if (def.adhoc) continue;
-    const b = document.createElement("button"); b.innerHTML = `<span>${def.icon}</span>${def.title}`;
-    b.onclick = () => { $("#launcher").hidden = true; openApp(id); };
-    g.append(b);
+// ── launcher: apps (with your own), layouts, pages ────────────────────
+const PER_PAGE = 12;
+const LS = { tab: "apps", page: 0, to: null, view: "grid", edit: null, build: null };
+function openLauncher(opts = {}) {
+  Object.assign(LS, { page: 0, view: "grid", edit: null, build: null, to: opts.to ?? null, tab: opts.tab || "apps" });
+  $("#launcher").hidden = false; drawLauncher();
+}
+$("#btn-apps").onclick = () => openLauncher();
+$$("#launcher .seg button").forEach((b) => (b.onclick = () => { LS.tab = b.dataset.tab; LS.page = 0; LS.view = "grid"; drawLauncher(); }));
+$("#pg-prev").onclick = () => { LS.page--; drawLauncher(); };
+$("#pg-next").onclick = () => { LS.page++; drawLauncher(); };
+
+function targetLabel() {
+  const to = LS.to;
+  if (!to) return "Opens where it belongs";
+  if (typeof to === "object") return "Into the layout cell";
+  return { left: "Into the left rail", "left-bottom": "Into the bottom left", right: "Into the right rail", "right-bottom": "Into the bottom right", center: "Into the center" }[to];
+}
+
+function paged(items, render1, extra) {
+  const all = extra ? [...items, extra] : items;
+  const pages = Math.max(1, Math.ceil(all.length / PER_PAGE));
+  LS.page = Math.max(0, Math.min(LS.page, pages - 1));
+  const g = document.createElement("div"); g.className = "grid";
+  for (const it of all.slice(LS.page * PER_PAGE, (LS.page + 1) * PER_PAGE)) g.append(it === extra ? extra.render() : render1(it));
+  $("#pg-prev").disabled = LS.page === 0; $("#pg-next").disabled = LS.page >= pages - 1;
+  const dots = $("#pg-dots"); dots.innerHTML = "";
+  for (let i = 0; i < pages; i++) { const d = document.createElement("i"); d.className = i === LS.page ? "on" : ""; d.onclick = () => { LS.page = i; drawLauncher(); }; dots.append(d); }
+  $(".pager").style.visibility = pages > 1 ? "" : "hidden";
+  return g;
+}
+
+function tile(icon, title, sub, onclick, cls = "") {
+  const b = document.createElement("div"); b.className = "tile " + cls;
+  b.innerHTML = `<span>${icon}</span><div>${esc(title)}</div>${sub ? `<small>${esc(sub)}</small>` : ""}`;
+  b.onclick = onclick; return b;
+}
+function miniGrid(l) {
+  const g = document.createElement("div"); g.className = "mini-grid";
+  g.style.gridTemplateColumns = (l.colWidths || Array(l.cols).fill(1)).map((w) => w + "fr").join(" ");
+  g.style.gridTemplateRows = `repeat(${l.rows}, 1fr)`;
+  for (const c of l.cells) { const i = document.createElement("i"); i.style.gridColumn = `${c.col + 1} / span ${c.colSpan || 1}`; i.style.gridRow = `${c.row + 1} / span ${c.rowSpan || 1}`; g.append(i); }
+  return g;
+}
+
+function drawLauncher() {
+  $$("#launcher .seg button").forEach((b) => b.classList.toggle("on", b.dataset.tab === LS.tab));
+  $("#launch-target").textContent = targetLabel();
+  const body = $("#launch-body"); body.innerHTML = "";
+  if (LS.view === "edit") return body.append(appForm());
+  if (LS.view === "build") return body.append(layoutBuilder());
+  if (LS.tab === "apps") {
+    const ids = Object.keys(APPS).filter((k) => !APPS[k].adhoc);
+    body.append(paged(ids, (id) => {
+      const d = APPS[id];
+      const t = tile(d.icon, d.title, isOpen(id) ? "open" : d.custom ? new URL(d.web).hostname : "", () => {
+        $("#launcher").hidden = true;
+        try { isOpen(id) && !LS.to ? focusApp(id) : openApp(id, LS.to || undefined); } catch (e) { toast(e.message, true); }
+      });
+      if (d.custom) { const e = document.createElement("span"); e.className = "edit"; e.textContent = "✎"; e.title = "Edit"; e.onclick = (ev) => { ev.stopPropagation(); LS.view = "edit"; LS.edit = customApps.find((a) => a.id === id); drawLauncher(); }; t.append(e); }
+      return t;
+    }, { render: () => tile("+", "Add app", "name, url, icon", () => { LS.view = "edit"; LS.edit = null; drawLauncher(); }, "add") }));
+  } else {
+    const all = allLayouts();
+    body.append(paged(Object.keys(all), (key) => {
+      const l = all[key];
+      const t = tile("", l.name, l.cells.some((c) => c.app) ? l.cells.map((c) => c.app).filter(Boolean).join(" · ") : `${l.cols}×${l.rows}`, () => { LS.view = "build"; LS.build = { key, ...structuredClone(l) }; drawLauncher(); });
+      t.querySelector("span").replaceWith(miniGrid(l));
+      if (savedLayouts[key]) { const e = document.createElement("span"); e.className = "edit"; e.textContent = "✕"; e.title = "Delete"; e.onclick = (ev) => { ev.stopPropagation(); delete savedLayouts[key]; os.store.set("layouts", savedLayouts); drawLauncher(); }; t.append(e); }
+      return t;
+    }));
   }
-  $("#launcher").hidden = false;
-};
+}
+
+function field(label, value, placeholder) {
+  const l = document.createElement("label"); l.textContent = label;
+  const i = document.createElement("input"); i.value = value || ""; i.placeholder = placeholder || ""; l.append(i);
+  return [l, i];
+}
+function appForm() {
+  const a = LS.edit || {};
+  const f = document.createElement("div"); f.className = "form";
+  const [ln, name] = field("Name", a.name, "Linear");
+  const [lu, url] = field("Address", a.url, "https://linear.app");
+  const [li, icon] = field("Icon (an emoji or a character)", a.icon, "◆");
+  const [lb, brief] = field("“Brief me” reads… (optional)", a.brief, "my open issues and what's due this week");
+  const la = document.createElement("label"); la.textContent = "Opens in";
+  const area = document.createElement("select");
+  area.innerHTML = [["center", "Center"], ["left", "Left rail"], ["left-bottom", "Bottom left"], ["right", "Right rail"], ["right-bottom", "Bottom right"]].map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
+  area.value = a.area || "center"; la.append(area);
+  const row = document.createElement("div"); row.className = "row"; row.append(li, la);
+  const actions = document.createElement("div"); actions.className = "actions";
+  const back = btn("Back", "", () => { LS.view = "grid"; drawLauncher(); }); back.className = "ghost";
+  actions.append(back);
+  if (a.id) { const del = btn("Delete", "", () => { closeApp(a.id, true); customApps = customApps.filter((x) => x.id !== a.id); os.store.set("apps", customApps); registerCustom(customApps); render(); LS.view = "grid"; drawLauncher(); }); del.className = "ghost"; actions.append(del); }
+  const ok = btn(a.id ? "Save" : "Add app", "", () => {
+    let u = url.value.trim(); if (!name.value.trim() || !u) return toast("Give it a name and an address", true);
+    if (!/^https?:\/\//.test(u)) u = "https://" + u;
+    try { new URL(u); } catch { return toast("That address isn't a url", true); }
+    const rec = { id: a.id || "app-" + slugify(name.value), name: name.value.trim(), url: u, icon: icon.value.trim() || "◌", area: area.value, brief: brief.value.trim() };
+    customApps = [...customApps.filter((x) => x.id !== rec.id), rec];
+    os.store.set("apps", customApps); registerCustom(customApps);
+    toast(`${rec.name} ${a.id ? "saved" : "added"}`);
+    LS.view = "grid"; drawLauncher(); render();
+  }); ok.className = "primary";
+  actions.append(ok);
+  const h = document.createElement("div"); h.className = "hint"; h.textContent = a.id ? "Edit your app" : "Add any web app; Glyphh can drive it with RPA like the built-in ones.";
+  f.append(h, ln, lu, row, lb, actions);
+  return f;
+}
+
+function layoutBuilder() {
+  const l = LS.build;
+  const f = document.createElement("div"); f.className = "form";
+  const [ln, name] = field("Name", l.key in BUILTIN_LAYOUTS ? l.name : l.name, "My layout");
+  const g = document.createElement("div"); g.className = "builder";
+  g.style.gridTemplateColumns = (l.colWidths || Array(l.cols).fill(1)).map((w) => w + "fr").join(" ");
+  g.style.gridTemplateRows = `repeat(${l.rows}, 1fr)`;
+  const ids = Object.keys(APPS).filter((k) => !APPS[k].adhoc);
+  l.cells.forEach((c) => {
+    const b = document.createElement("div"); b.className = "bcell";
+    b.style.gridColumn = `${c.col + 1} / span ${c.colSpan || 1}`; b.style.gridRow = `${c.row + 1} / span ${c.rowSpan || 1}`;
+    const s = document.createElement("select");
+    s.innerHTML = `<option value="">— empty —</option>` + ids.map((id) => `<option value="${id}">${APPS[id].icon} ${esc(APPS[id].title)}</option>`).join("");
+    s.value = c.app || ""; s.onchange = () => (c.app = s.value || null);
+    b.append(s); g.append(b);
+  });
+  const actions = document.createElement("div"); actions.className = "actions";
+  const back = btn("Back", "", () => { LS.view = "grid"; drawLauncher(); }); back.className = "ghost";
+  const saveB = btn("Save layout", "", () => {
+    const key = slugify(name.value || "layout");
+    if (key in BUILTIN_LAYOUTS && name.value === BUILTIN_LAYOUTS[key].name) return toast("Give it a new name to save your own", true);
+    savedLayouts[key] = { name: name.value || "Layout", cols: l.cols, rows: l.rows, colWidths: l.colWidths, cells: l.cells };
+    os.store.set("layouts", savedLayouts); toast(`Saved ${name.value}`);
+  }); saveB.className = "ghost";
+  const openB = btn("Open in center", "", () => { $("#launcher").hidden = true; openLayout({ ...l, name: name.value || l.name }); }); openB.className = "primary";
+  actions.append(back, saveB, openB);
+  $(".pager").style.visibility = "hidden";
+  f.append(ln, g, actions);
+  return f;
+}
 
 // ── settings ──────────────────────────────────────────────────────────
 let models = [];
@@ -455,8 +812,8 @@ function fillModels(list) {
   if (list?.length) models = list;
   const opts = [["default", "Default model"], ...models.map((m) => [m.value, m.displayName || m.value])];
   for (const sel of [$("#sel-model"), $("#set-model")]) {
-    sel.innerHTML = opts.map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
-    if (!opts.some(([v]) => v === settings.model)) sel.insertAdjacentHTML("beforeend", `<option value="${settings.model}">${settings.model}</option>`);
+    sel.innerHTML = opts.map(([v, n]) => `<option value="${v}">${esc(n)}</option>`).join("");
+    if (!opts.some(([v]) => v === settings.model)) sel.insertAdjacentHTML("beforeend", `<option value="${esc(settings.model)}">${esc(settings.model)}</option>`);
     sel.value = settings.model;
   }
 }
@@ -471,8 +828,8 @@ async function openSettings() {
   $("#set-eleven").value = ""; $("#set-eleven").placeholder = settings.elevenKeySet ? "•••••••• saved in your keychain (type to replace)" : "sk_…  (stored in your keychain)";
   $("#set-model").value = settings.model; $("#set-effort").value = settings.effort; $("#set-perm").value = settings.permissionMode;
   $("#set-cwd").value = settings.cwd; $("#set-claude-path").value = settings.claudePath; $("#set-tts").value = settings.ttsModel; $("#set-vad").value = settings.vadThreshold;
-  const vs = $("#set-voice"); vs.innerHTML = `<option value="${settings.voiceId}">${settings.voiceId === "JBFqnCBsd6RMkjVDRZzb" ? "George (default)" : settings.voiceId}</option>`;
-  if (settings.elevenKeySet) os.voice.voices().then((list) => { vs.innerHTML = list.map((v) => `<option value="${v.id}">${v.name}${v.labels.accent ? " · " + v.labels.accent : ""}</option>`).join(""); vs.value = settings.voiceId; }).catch((e) => toast(e.message, true));
+  const vs = $("#set-voice"); vs.innerHTML = `<option value="${esc(settings.voiceId)}">${settings.voiceId === "JBFqnCBsd6RMkjVDRZzb" ? "George (default)" : esc(settings.voiceId)}</option>`;
+  if (settings.elevenKeySet) os.voice.voices().then((list) => { vs.innerHTML = list.map((v) => `<option value="${esc(v.id)}">${esc(v.name)}${v.labels.accent ? " · " + esc(v.labels.accent) : ""}</option>`).join(""); vs.value = settings.voiceId; }).catch((e) => toast(e.message, true));
   $("#settings").hidden = false;
 }
 $("#btn-settings").onclick = openSettings;
@@ -489,8 +846,8 @@ $$(".modal").forEach((m) => m.addEventListener("pointerdown", (e) => { if (e.tar
 
 // ── boot ──────────────────────────────────────────────────────────────
 setInterval(() => ($("#clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })), 1000);
-applyLayout(L);
-go(0); // every boot opens on the face
+L.center.index = 0; // every boot opens on the face
+render();
 os.agent.connections().then((list) => { setConnDots(list); if (list.length) setStatus("ok", `ready · ${list.filter((s) => s.status === "connected").length} connections`); }).catch(() => {});
 if (!settings.elevenKeySet) setTimeout(() => toast("Add your ElevenLabs key in Settings (top right) to talk"), 1200);
 caption("Hello. I'm Glyphh.");
