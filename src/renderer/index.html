@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; img-src * data: blob:; media-src * data: blob:; connect-src *; worker-src 'self' blob: data:; font-src 'self' data:" />
+  <title>Glyphh OS</title>
+  <link rel="stylesheet" href="xterm.css" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="monaco/vs/loader.js"></script>
+</head>
+<body>
+  <header id="top">
+    <div class="brand"><img src="brand/glyphh-mark-purple.png" alt="" /><span>glyphh <b>os</b></span></div>
+    <div id="status"><span class="dot" id="agent-dot"></span><span id="agent-status">starting…</span></div>
+    <div class="top-right">
+      <div id="conn-dots" title="Connections"></div>
+      <span id="clock"></span>
+      <button class="icon-btn" id="btn-apps" title="Open an app">▦</button>
+      <button class="icon-btn" id="btn-settings" title="Settings">⚙</button>
+    </div>
+  </header>
+
+  <main id="stage">
+    <section class="area" data-area="left"><nav class="tabs"></nav><div class="area-body"></div><div class="area-empty">Drop an app here</div></section>
+    <div class="splitter" data-split="left"></div>
+    <section class="area center" data-area="center">
+      <nav class="tabs center-tabs"></nav>
+      <div class="carousel">
+        <div class="track"><div class="slide face-slide" data-app="face"><canvas id="face"></canvas><div id="face-caption"></div></div></div>
+        <div class="swipe-edge left" title="Swipe back"></div><div class="swipe-edge right" title="Swipe on"></div>
+      </div>
+      <div class="dots"></div>
+      <div id="composer">
+        <div id="log" class="collapsed"></div>
+        <div class="bar">
+          <button class="icon-btn" id="btn-log" title="Conversation">☰</button>
+          <textarea id="input" rows="1" placeholder="Talk to Glyphh, or type .dip dev, .open terminal…"></textarea>
+          <button class="icon-btn" id="btn-mic" title="Hold to talk (or click)">🎙</button>
+          <button class="icon-btn toggle" id="btn-loop" title="Continuous conversation">∞</button>
+          <button class="icon-btn toggle" id="btn-speak" title="Speak replies">🔊</button>
+          <button class="icon-btn" id="btn-stop" title="Stop" hidden>■</button>
+          <button class="send" id="btn-send" title="Send">↑</button>
+        </div>
+        <div class="chips">
+          <select id="sel-model" title="Model"></select>
+          <select id="sel-effort" title="Effort">
+            <option value="low">low effort</option><option value="medium">medium effort</option><option value="high">high effort</option><option value="xhigh">xhigh effort</option><option value="max">max effort</option>
+          </select>
+          <button class="chip" id="btn-new">new chat</button>
+          <span id="mic-level"><i></i></span>
+        </div>
+      </div>
+    </section>
+    <div class="splitter" data-split="right"></div>
+    <section class="area" data-area="right"><nav class="tabs"></nav><div class="area-body"></div><div class="area-empty">Drop an app here</div></section>
+  </main>
+
+  <div id="launcher" class="modal" hidden><div class="sheet"><h2>Open an app</h2><div class="grid"></div></div></div>
+
+  <div id="settings" class="modal" hidden>
+    <div class="sheet">
+      <h2>Settings</h2>
+      <label>ElevenLabs API key<input id="set-eleven" type="password" placeholder="sk_…  (stored in your keychain)" autocomplete="off" /></label>
+      <label>Voice<select id="set-voice"></select></label>
+      <div class="row">
+        <label>Speech model<select id="set-tts"><option value="eleven_flash_v2_5">Flash v2.5 (fastest)</option><option value="eleven_turbo_v2_5">Turbo v2.5</option><option value="eleven_multilingual_v2">Multilingual v2</option><option value="eleven_v3">v3 (most expressive)</option></select></label>
+        <label>Mic sensitivity<input id="set-vad" type="range" min="0.01" max="0.12" step="0.005" /></label>
+      </div>
+      <label>Claude<div class="hint" id="set-claude">Glyphh OS signs in with your Claude Code login. Run <code>claude</code> then <code>/login</code> once in a terminal.</div></label>
+      <div class="row">
+        <label>Model<select id="set-model"></select></label>
+        <label>Effort<select id="set-effort"><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select></label>
+      </div>
+      <label>Permissions<select id="set-perm"><option value="ask">Ask before edits, commands and connector writes</option><option value="auto">Full auto (no prompts)</option></select></label>
+      <label>Working folder<input id="set-cwd" /></label>
+      <label>Claude executable<input id="set-claude-path" placeholder="empty = claude on your PATH" /></label>
+      <div class="actions"><button class="ghost" data-close>Close</button><button class="primary" id="set-save">Save</button></div>
+    </div>
+  </div>
+
+  <div id="perm" class="modal" hidden>
+    <div class="sheet"><h2>Allow <span id="perm-name"></span>?</h2><pre id="perm-input"></pre>
+      <div class="actions"><button class="ghost" id="perm-no">Deny</button><button class="primary" id="perm-yes">Allow</button></div></div>
+  </div>
+
+  <div id="toasts"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
