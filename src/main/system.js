@@ -36,7 +36,9 @@ function git(cwd, args) {
 }
 
 export async function gitStatus(cwd) {
-  const root = (await git(cwd, ["rev-parse", "--show-toplevel"])).trim();
+  let root;
+  try { root = (await git(cwd, ["rev-parse", "--show-toplevel"])).trim(); } catch { return { notRepo: true }; } // not an error: just not a repo
+  if (!root) return { notRepo: true };
   const out = await git(root, ["status", "--porcelain=v1", "-b"]);
   const lines = out.split("\n").filter(Boolean);
   const branch = (lines.shift() || "").replace(/^## /, "");

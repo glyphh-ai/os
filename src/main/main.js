@@ -96,6 +96,21 @@ handle("layout:get", () => readJson("layout.json", null));
 handle("layout:set", (l) => writeJson("layout.json", l));
 handle("dips:get", () => readJson("dips.json", null));
 handle("dips:set", (d) => writeJson("dips.json", d));
+// A site's own icon: read its <link rel=icon> tags (largest png/svg first), else /favicon.ico. No third-party icon service.
+handle("favicon:resolve", async (pageUrl) => {
+  const u = new URL(pageUrl);
+  const ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36";
+  const ok = async (href) => { try { const r = await fetch(href, { headers: { "user-agent": ua } }); return r.ok && /image|octet/.test(r.headers.get("content-type") || "image"); } catch { return false; } };
+  try {
+    const html = await (await fetch(u.origin + "/", { headers: { "user-agent": ua, accept: "text/html" }, redirect: "follow" })).text();
+    const links = [...html.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0])
+      .filter((t) => /rel=["'][^"']*icon[^"']*["']/i.test(t))
+      .map((t) => ({ href: t.match(/href=["']([^"']+)["']/i)?.[1], size: Number(t.match(/sizes=["'](\d+)/i)?.[1] || (/apple-touch/i.test(t) ? 180 : 16)) }))
+      .filter((l) => l.href).sort((a, b) => (Math.abs(a.size - 64) - Math.abs(b.size - 64)));
+    for (const l of links) { const href = new URL(l.href.replace(/&amp;/g, "&"), u.origin + "/").href; if (await ok(href)) return href; }
+  } catch { /* offline or blocked */ }
+  return (await ok(u.origin + "/favicon.ico")) ? u.origin + "/favicon.ico" : null;
+});
 const STORES = new Set(["apps", "layouts"]); // custom apps, saved center layouts
 handle("store:get", (name) => (STORES.has(name) ? readJson(name + ".json", null) : null));
 handle("store:set", (name, v) => STORES.has(name) && writeJson(name + ".json", v));

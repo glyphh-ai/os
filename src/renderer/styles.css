@@ -190,7 +190,13 @@ webview { flex: 1; width: 100%; background: #fff0; }
 #launcher .grid { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 96px; gap: 8px; }
 .tile { position: relative; padding: 10px 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--glass); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--text-2); overflow: hidden; }
 .tile:hover { border-color: var(--accent); color: #fff; box-shadow: 0 0 16px var(--accent-glow); }
-.tile > span { font-size: 22px; } .tile small { color: var(--text-3); font-size: 10.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ico { width: 15px; height: 15px; flex: none; display: inline-block; vertical-align: middle; }
+img.ico { object-fit: contain; border-radius: 3px; }
+.tab .ico { color: var(--accent-2); } .tab:not(.active) .ico { opacity: 0.8; }
+.rail-mini .ico { width: 17px; height: 17px; color: var(--accent-2); }
+.cell-head .n { display: flex; align-items: center; gap: 6px; } .cell-head .ico { width: 13px; height: 13px; color: var(--accent-2); }
+.tile .tile-ico { font-size: 22px; height: 28px; display: grid; place-items: center; color: var(--accent-2); }
+.tile .tile-ico .ico { width: 26px; height: 26px; } .tile small { color: var(--text-3); font-size: 10.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile.add { border-style: dashed; }
 .tile .edit { position: absolute; top: 4px; right: 6px; opacity: 0; font-size: 11px; color: var(--text-3); }
 .tile:hover .edit { opacity: 1; } .tile .edit:hover { color: #fff; }
@@ -208,6 +214,9 @@ webview { flex: 1; width: 100%; background: #fff0; }
 #glyphh-pill img { width: 20px; height: 20px; }
 #glyphh-pill i { width: 30px; height: 3px; border-radius: 2px; background: var(--accent); transform-origin: left; transform: scaleX(0.05); transition: transform 0.08s; }
 #glyphh-pill:hover { border-color: var(--accent); }
+#pill-stop { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; background: var(--bad); color: #fff; font-size: 10px; }
+.send.stop { background: var(--bad); box-shadow: 0 0 14px rgba(248, 113, 113, 0.45); font-size: 13px; }
+.send.stop:hover { background: #fb8f8f; }
 
 #toasts { position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 60; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
 .toast { padding: 8px 14px; border-radius: 10px; background: rgba(20, 12, 32, 0.92); border: 1px solid var(--line-2); box-shadow: 0 0 20px var(--accent-glow); animation: tin 0.25s; }

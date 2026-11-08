@@ -163,7 +163,16 @@ export class Agent {
     this.in.push({ type: "user", session_id: this.sessionId || "", parent_tool_use_id: null, message: { role: "user", content: textIn } });
   }
 
-  async interrupt() { try { await this.q?.interrupt(); } catch { /* idle */ } this.busy = false; }
+  /** Stop the turn. If the CLI doesn't answer the interrupt in 3s, restart the session (the conversation carries over). */
+  async interrupt() {
+    if (!this.q) return;
+    const ok = await Promise.race([
+      this.q.interrupt().then(() => true, () => false),
+      new Promise((r) => setTimeout(() => r(false), 3000)),
+    ]);
+    if (!ok && this.busy) this.restart();
+    this.busy = false;
+  }
 
   /** Model, effort or permissions changed: carry the conversation into a new session. */
   restart() {

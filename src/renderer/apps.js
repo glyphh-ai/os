@@ -26,16 +26,65 @@ export const APPS = {
   email:       { title: "Email", icon: "✉", group: "work", mount: (el, c) => mountConnector(el, c, "email") },
   calendar:    { title: "Calendar", icon: "📅", group: "work", mount: (el, c) => mountConnector(el, c, "calendar") },
   connections: { title: "Connections", icon: "⛓", group: "work", mount: mountConnections },
-  slack:       { title: "Slack", icon: "#", group: "social", web: "https://app.slack.com/client", brief: "my unread Slack messages and mentions" },
-  x:           { title: "X", icon: "𝕏", group: "social", web: "https://x.com/i/account_analytics", brief: "my X account analytics: impressions, engagement, followers and top posts" },
-  instagram:   { title: "Instagram", icon: "◉", group: "social", web: "https://www.instagram.com/accounts/insights/", brief: "my Instagram insights: reach, engagement, followers and top posts" },
-  youtube:     { title: "YouTube", icon: "▷", group: "social", web: "https://studio.youtube.com/channel/UC/analytics", brief: "my YouTube channel analytics: views, watch time, subscribers and top videos" },
+  slack:       { title: "Slack", group: "social", web: "https://app.slack.com/client", iconSite: "https://slack.com", brief: "my unread Slack messages and mentions" },
+  x:           { title: "X", group: "social", web: "https://x.com/i/account_analytics", iconSite: "https://x.com", brief: "my X account analytics: impressions, engagement, followers and top posts" },
+  instagram:   { title: "Instagram", group: "social", web: "https://www.instagram.com/accounts/insights/", iconSite: "https://www.instagram.com", brief: "my Instagram insights: reach, engagement, followers and top posts" },
+  youtube:     { title: "YouTube", group: "social", web: "https://studio.youtube.com/channel/UC/analytics", iconSite: "https://www.youtube.com", brief: "my YouTube channel analytics: views, watch time, subscribers and top videos" },
 };
 
-/** The user's own apps (Apps → Add app): a name, a url, an icon. */
+/** The user's own apps (Apps → Add app): a name, a url, optionally an icon image. */
 export function registerCustom(list = []) {
   for (const k of Object.keys(APPS)) if (APPS[k].custom) delete APPS[k];
-  for (const a of list) APPS[a.id] = { title: a.name, icon: a.icon || "◌", web: a.url, custom: true, area: a.area, brief: a.brief || undefined };
+  for (const a of list) APPS[a.id] = { title: a.name, iconUrl: a.iconUrl || undefined, web: a.url, custom: true, area: a.area, brief: a.brief || undefined };
+}
+
+// ── icons: one line set for the built-in apps, each site's own favicon for web apps ──
+const P = {
+  files: "M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z",
+  editor: "M8.5 8 4.5 12l4 4M15.5 8l4 4-4 4M13.5 5.5l-3 13",
+  terminal: "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM7 9.5l3 2.5-3 2.5M12.5 15h4.5",
+  git: "M6 3.5v11M6 14.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM18 4.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM18 9.5c0 4-5 4.5-11 5.5",
+  browser: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3.5 12h17M12 3c2.6 2.6 3.6 6 3.6 9s-1 6.4-3.6 9M12 3C9.4 5.6 8.4 9 8.4 12s1 6.4 3.6 9",
+  email: "M4 5.5h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1zM3.5 7l8.5 6 8.5-6",
+  calendar: "M5 5h14a1.5 1.5 0 0 1 1.5 1.5v12A1.5 1.5 0 0 1 19 20H5a1.5 1.5 0 0 1-1.5-1.5v-12A1.5 1.5 0 0 1 5 5zM3.5 10h17M8 3v4M16 3v4",
+  connections: "M10 14a4 4 0 0 0 5.7 0l3-3A4 4 0 0 0 13 5.3l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1",
+  layout: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+};
+const svg = (d) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
+
+const FAV_KEY = "glyphh-os-favicons";
+let favicons = {};
+try { favicons = JSON.parse(localStorage.getItem(FAV_KEY) || "{}"); } catch { /* storage off */ }
+const listeners = new Set();
+export const onIconChange = (fn) => listeners.add(fn);
+function learnFavicon(id, url) {
+  if (!url || favicons[id] === url) return;
+  favicons[id] = url;
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(favicons)); } catch { /* storage off */ }
+  for (const fn of listeners) fn(id);
+}
+const resolving = new Set();
+const faviconOf = (id) => {
+  const d = APPS[id];
+  if (d.iconUrl) return d.iconUrl;
+  if (favicons[id]) return favicons[id];
+  if (!resolving.has(id)) { // ask main to read the site's own icon tags, once
+    resolving.add(id);
+    os.favicon(d.iconSite || d.web).then((u) => u && learnFavicon(id, u)).catch(() => {});
+  }
+  return "";
+};
+
+/** The icon for an app (or "face" / "layout") as HTML. */
+export function iconHTML(id) {
+  if (id === "face") return `<img class="ico" src="brand/glyphh-mark-purple.png" alt="">`;
+  if (P[id]) return svg(P[id]);
+  const d = APPS[id];
+  if (!d?.web) return svg(P.browser);
+  // the site's favicon; until it's known, or if it won't load, the globe
+  const src = faviconOf(id);
+  if (!src) return svg(P.browser);
+  return `<img class="ico fav" src="${src}" alt="" onerror="this.outerHTML='${svg(P.browser).replace(/"/g, "&quot;")}'">`;
 }
 export const slugify = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "app";
 
@@ -72,6 +121,10 @@ function mountWeb(el, ctx, id, def) {
   wv.addEventListener("did-navigate", (e) => { url.value = e.url; ctx.changed(); });
   wv.addEventListener("did-navigate-in-page", (e) => { if (e.isMainFrame) url.value = e.url; });
   wv.addEventListener("page-title-updated", (e) => ctx.setTitle?.(e.title));
+  wv.addEventListener("page-favicon-updated", (e) => {
+    const best = e.favicons?.find((f) => /\.(png|svg)(\?|$)/i.test(f)) || e.favicons?.[0];
+    if (best && !def.iconUrl) learnFavicon(id, best);
+  });
   return {
     url: () => { try { return wv.getURL(); } catch { return url.value; } },
     goto: (u) => { url.value = u; go(); },
@@ -212,7 +265,8 @@ function mountGit(el, ctx) {
   async function render() {
     body.innerHTML = "";
     let s;
-    try { s = await os.git.status(cwd); } catch { body.append(h("div", { class: "empty-note" }, `${cwd} isn't a git repository — type a repo folder above.`)); return; }
+    try { s = await os.git.status(cwd); } catch (e) { s = { error: e.message }; }
+    if (s.notRepo || s.error) { body.append(h("div", { class: "empty-note" }, s.error || `${cwd} isn't a git repository — type a repo folder above.`)); return; }
     body.append(h("div", { class: "section-h" }, `⎇ ${s.branch}`));
     const staged = s.files.filter((f) => f.x !== " " && f.x !== "?");
     const changed = s.files.filter((f) => f.y !== " " || f.x === "?");
@@ -236,7 +290,7 @@ function mountGit(el, ctx) {
   el.append(h("div", { class: "toolbar" }, where, h("button", { class: "tb", onclick: render, title: "Refresh" }, "↻"),
     h("button", { class: "tb", onclick: () => ctx.ask("Look at the uncommitted changes in " + cwd + " and write me a commit message.") }, "✦ message")), body, diff);
   render();
-  const timer = setInterval(() => el.closest(".panel.active, .slide") && document.hasFocus() && render(), 15000);
+  const timer = setInterval(() => el.classList.contains("active") && document.hasFocus() && render(), 15000);
   return { refresh: render, unmount: () => clearInterval(timer) };
 }
 

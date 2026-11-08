@@ -8,7 +8,7 @@
 // Every app is one live instance; moving it moves its element.
 import { createFace } from "./face.js";
 import { createVoice } from "./voice.js";
-import { APPS, mountApp, webAppFor, registerCustom, slugify } from "./apps.js";
+import { APPS, mountApp, webAppFor, registerCustom, slugify, iconHTML, onIconChange } from "./apps.js";
 
 const os = window.os;
 const $ = (s, r = document) => r.querySelector(s);
@@ -165,7 +165,8 @@ function attach(id, parent) {
 
 // ── rendering ─────────────────────────────────────────────────────────
 const areaEl = (a) => $(`.area[data-area="${a}"]`);
-const appDef = (id) => (id === "face" ? { icon: "◈", title: "Glyphh" } : APPS[id] || { icon: "◌", title: id });
+const appDef = (id) => (id === "face" ? { title: "Glyphh" } : APPS[id] || { title: id });
+onIconChange(() => { render(); if (!$("#launcher").hidden && LS.view === "grid") drawLauncher(); });
 
 function render() {
   // rails
@@ -183,7 +184,7 @@ function render() {
     mini.append(btn("⇤⇥".charAt(r === "left" ? 1 : 0), "Expand", () => setRail(r, true)));
     for (const a of [r, r + "-bottom"]) {
       if (L.areas[a].apps.length) mini.append(document.createElement("hr"));
-      for (const id of L.areas[a].apps) mini.append(btn(appDef(id).icon, appDef(id).title, () => { setRail(r, true); focusApp(id); }));
+      for (const id of L.areas[a].apps) { const b = btn("", appDef(id).title, () => { setRail(r, true); focusApp(id); }); b.innerHTML = iconHTML(id); mini.append(b); }
     }
   }
   stage.classList.toggle("composer-closed", !L.composer.open);
@@ -228,11 +229,11 @@ function render() {
 
   // center tabs + dots
   const nav = $(".center-tabs"); nav.innerHTML = "";
-  const order = [{ id: "face", label: appDef("face") }, ...L.center.slides.map((s) => ({ id: s.id, label: s.kind === "app" ? appDef(s.app) : { icon: "▦", title: s.name || "Layout" }, slide: s }))];
+  const order = [{ id: "face", label: { ...appDef("face"), icon: iconHTML("face") } }, ...L.center.slides.map((s) => ({ id: s.id, label: s.kind === "app" ? { ...appDef(s.app), icon: iconHTML(s.app) } : { icon: iconHTML("layout"), title: s.name || "Layout" }, slide: s }))];
   order.forEach((o, i) => {
     const t = document.createElement("div");
     t.className = "tab" + (i === L.center.index ? " active" : "");
-    t.innerHTML = `<span>${o.label.icon}</span><span>${esc(o.label.title)}</span>`;
+    t.innerHTML = `${o.label.icon}<span>${esc(o.label.title)}</span>`;
     t.onclick = () => go(i);
     if (o.slide) {
       if (o.slide.kind === "app") { t.draggable = true; t.ondragstart = (e) => dragApp(e, o.slide.app); }
@@ -273,7 +274,7 @@ function renderLayoutSlide(slide, s) {
     head.hidden = body.hidden = !c.app; empty.hidden = !!c.app;
     empty.querySelector("button").onclick = () => openLauncher({ to: { slide: s.id, cell: i } });
     if (c.app) {
-      head.querySelector(".n").textContent = `${appDef(c.app).icon}  ${appDef(c.app).title}`;
+      head.querySelector(".n").innerHTML = `${iconHTML(c.app)}<span>${esc(appDef(c.app).title)}</span>`;
       head.querySelector("button").onclick = () => closeApp(c.app);
       head.draggable = true; head.ondragstart = (e) => dragApp(e, c.app);
       const rec = attach(c.app, body); rec.el.classList.add("active");
@@ -290,7 +291,7 @@ function tabChip(id, active) {
   const t = document.createElement("div");
   t.className = "tab" + (active ? " active" : "");
   t.draggable = true;
-  t.innerHTML = `<span>${appDef(id).icon}</span><span>${esc(appDef(id).title)}</span>`;
+  t.innerHTML = `${iconHTML(id)}<span>${esc(appDef(id).title)}</span>`;
   const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.onclick = (e) => { e.stopPropagation(); closeApp(id); }; t.append(x);
   t.onclick = () => focusApp(id);
   t.ondragstart = (e) => dragApp(e, id);
@@ -489,7 +490,10 @@ document.addEventListener("keydown", (e) => {
   if (e.metaKey && e.key === ",") { e.preventDefault(); openSettings(); }
   if (e.metaKey && e.key.toLowerCase() === "k") { e.preventDefault(); setComposer(true); }
   if (e.metaKey && e.key.toLowerCase() === "b") { e.preventDefault(); setRail(e.shiftKey ? "right" : "left", !L.rails[e.shiftKey ? "right" : "left"].open); }
-  if (e.key === "Escape") { $$(".modal").forEach((m) => { if (m.id !== "perm") m.hidden = true; }); if (voice.speaking) voice.stopSpeaking(); }
+  if (e.key === "Escape") {
+    const open = $$(".modal").filter((m) => !m.hidden && m.id !== "perm");
+    if (open.length) open.forEach((m) => (m.hidden = true)); else stopAgent();
+  }
 });
 
 // ── face + voice ──────────────────────────────────────────────────────
@@ -511,13 +515,21 @@ const input = $("#input"), log = $("#log");
 const autosize = () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px"; };
 input.addEventListener("input", autosize);
 input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); } });
-$("#btn-send").onclick = submit;
+// While Claude works, send becomes stop (and Esc stops too); typing something new still sends it.
+$("#btn-send").onclick = () => (busy && !input.value.trim() ? stopAgent() : submit());
 $("#btn-log").onclick = () => log.classList.toggle("collapsed");
-$("#btn-stop").onclick = () => { os.agent.interrupt(); voice.stopSpeaking(); };
+let stopped = false;
+function stopAgent() {
+  voice.stopSpeaking();
+  if (!busy) return;
+  busy = false; stopped = true; setStatus("bad", "stopping…"); updateFace();
+  os.agent.interrupt().then(() => { if (!busy) setStatus("ok", "stopped"); });
+  addMsg("tool", "stopped");
+}
 $("#btn-new").onclick = () => { os.agent.newChat(); log.innerHTML = ""; caption(""); toast("New conversation"); };
 function setComposer(open) { L.composer.open = open; render(); if (open) setTimeout(() => input.focus(), 50); }
 $("#btn-close-composer").onclick = () => setComposer(false);
-$("#glyphh-pill").onclick = () => setComposer(true);
+$("#glyphh-pill").onclick = (e) => (e.target.id === "pill-stop" ? stopAgent() : setComposer(true));
 
 const mic = $("#btn-mic");
 let pttDown = 0;
@@ -579,11 +591,16 @@ function send(t) {
   try { local = localCommand(t); } catch (e) { local = "⚠ " + e.message; }
   if (local != null) { addMsg("tool", local); return; }
   voice.stopSpeaking();
-  busy = true; botMsg = null; botText = ""; setStatus("busy", "thinking…"); updateFace();
+  stopped = false; busy = true; botMsg = null; botText = ""; setStatus("busy", "thinking…"); updateFace();
   os.agent.send(t);
 }
 
-function setStatus(kind, text) { $("#agent-dot").className = "dot " + kind; $("#agent-status").textContent = text; $("#btn-stop").hidden = kind !== "busy"; }
+function setStatus(kind, text) {
+  $("#agent-dot").className = "dot " + kind; $("#agent-status").textContent = text;
+  const working = kind === "busy";
+  const s = $("#btn-send"); s.textContent = working ? "■" : "↑"; s.title = working ? "Stop (Esc)" : "Send"; s.classList.toggle("stop", working);
+  $("#pill-stop").hidden = !working;
+}
 
 os.agent.onEvent((e) => {
   switch (e.type) {
@@ -591,6 +608,7 @@ os.agent.onEvent((e) => {
     case "models": fillModels(e.models); break;
     case "turn": botMsg = null; botText = ""; break;
     case "delta":
+      if (stopped) break;
       if (!botMsg) botMsg = addMsg("bot", "");
       botText += e.text; botMsg.textContent = botText; log.scrollTop = log.scrollHeight;
       caption(botText.split(/(?<=[.!?])\s+/).slice(-2).join(" "));
@@ -606,6 +624,7 @@ os.agent.onEvent((e) => {
       break;
     }
     case "done":
+      if (stopped) { stopped = false; busy = false; setStatus("ok", "stopped"); updateFace(); break; }
       busy = false; if (speakReplies) voice.flush();
       if (!e.ok && e.error) addMsg("err", e.error);
       setStatus(e.ok ? "ok" : "bad", e.ok ? "ready" + (e.cost ? ` · $${e.cost.toFixed(3)}` : "") : "stopped");
@@ -698,7 +717,7 @@ function paged(items, render1, extra) {
 
 function tile(icon, title, sub, onclick, cls = "") {
   const b = document.createElement("div"); b.className = "tile " + cls;
-  b.innerHTML = `<span>${icon}</span><div>${esc(title)}</div>${sub ? `<small>${esc(sub)}</small>` : ""}`;
+  b.innerHTML = `<span class="tile-ico">${icon}</span><div>${esc(title)}</div>${sub ? `<small>${esc(sub)}</small>` : ""}`;
   b.onclick = onclick; return b;
 }
 function miniGrid(l) {
@@ -719,7 +738,7 @@ function drawLauncher() {
     const ids = Object.keys(APPS).filter((k) => !APPS[k].adhoc);
     body.append(paged(ids, (id) => {
       const d = APPS[id];
-      const t = tile(d.icon, d.title, isOpen(id) ? "open" : d.custom ? new URL(d.web).hostname : "", () => {
+      const t = tile(iconHTML(id), d.title, isOpen(id) ? "open" : d.custom ? new URL(d.web).hostname : "", () => {
         $("#launcher").hidden = true;
         try { isOpen(id) && !LS.to ? focusApp(id) : openApp(id, LS.to || undefined); } catch (e) { toast(e.message, true); }
       });
@@ -748,7 +767,7 @@ function appForm() {
   const f = document.createElement("div"); f.className = "form";
   const [ln, name] = field("Name", a.name, "Linear");
   const [lu, url] = field("Address", a.url, "https://linear.app");
-  const [li, icon] = field("Icon (an emoji or a character)", a.icon, "◆");
+  const [li, icon] = field("Icon image (optional: the site's favicon by default)", a.iconUrl, "https://…/icon.png");
   const [lb, brief] = field("“Brief me” reads… (optional)", a.brief, "my open issues and what's due this week");
   const la = document.createElement("label"); la.textContent = "Opens in";
   const area = document.createElement("select");
@@ -763,7 +782,7 @@ function appForm() {
     let u = url.value.trim(); if (!name.value.trim() || !u) return toast("Give it a name and an address", true);
     if (!/^https?:\/\//.test(u)) u = "https://" + u;
     try { new URL(u); } catch { return toast("That address isn't a url", true); }
-    const rec = { id: a.id || "app-" + slugify(name.value), name: name.value.trim(), url: u, icon: icon.value.trim() || "◌", area: area.value, brief: brief.value.trim() };
+    const rec = { id: a.id || "app-" + slugify(name.value), name: name.value.trim(), url: u, iconUrl: /^https?:\/\//.test(icon.value.trim()) ? icon.value.trim() : "", area: area.value, brief: brief.value.trim() };
     customApps = [...customApps.filter((x) => x.id !== rec.id), rec];
     os.store.set("apps", customApps); registerCustom(customApps);
     toast(`${rec.name} ${a.id ? "saved" : "added"}`);
@@ -787,7 +806,7 @@ function layoutBuilder() {
     const b = document.createElement("div"); b.className = "bcell";
     b.style.gridColumn = `${c.col + 1} / span ${c.colSpan || 1}`; b.style.gridRow = `${c.row + 1} / span ${c.rowSpan || 1}`;
     const s = document.createElement("select");
-    s.innerHTML = `<option value="">— empty —</option>` + ids.map((id) => `<option value="${id}">${APPS[id].icon} ${esc(APPS[id].title)}</option>`).join("");
+    s.innerHTML = `<option value="">— empty —</option>` + ids.map((id) => `<option value="${id}">${esc(APPS[id].title)}</option>`).join("");
     s.value = c.app || ""; s.onchange = () => (c.app = s.value || null);
     b.append(s); g.append(b);
   });
