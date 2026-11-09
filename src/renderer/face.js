@@ -1,7 +1,7 @@
-// face — the holographic character at the center of the OS: a human bust
+// face — the holographic character at the center of the OS: the Glyphh cat
 // (character.js) drawn as contour lines, a wire grid, points or a hologram
-// shell, with glowing eyes and HUD rings. The jaw opens with the loudness of
-// the voice that is playing; the head turns toward the pointer and breathes.
+// shell, with its glowing eye and HUD rings. The pupil dilates with the voice
+// that is playing; the cat turns toward the pointer and breathes.
 import * as THREE from "three";
 import { mesh as buildMesh, PRESETS } from "./character.js";
 
@@ -75,22 +75,48 @@ export function createFace(canvas) {
   const pointMat = new THREE.PointsMaterial({ size: 0.016, map: dot, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color, opacity: 0.6 });
 
   let geo = null, occMesh = null, lineMesh = null, points = null;
-  // the one big eye: a bright oval ring, and a pupil off to the right that dilates as it talks
+  // the eye, drawn from the mark: its ring (and lashes, sparkle), a pupil that looks
+  // around and dilates as it talks, and the dark dot inside the pupil
   const eye = new THREE.Group(); head.add(eye);
-  // the eye draws over the body (it sits in a socket the body would otherwise hide)
   const glowMat = (o) => new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: o, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 128), glowMat(0.9));
-  const ringGlow = new THREE.Mesh(new THREE.RingGeometry(0.72, 1.2, 128), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, side: THREE.DoubleSide }));
-  const pupil = new THREE.Mesh(new THREE.CircleGeometry(1, 48), glowMat(0.95));
+  const ringGlowMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
+  // transparent so it sorts with (and after) the glowing pupil it sits on
+  const inkMat = new THREE.MeshBasicMaterial({ color: 0x0b0a0f, transparent: true, opacity: 1, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
   const pupilGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, depthTest: false }));
-  eye.add(ringGlow, ring, pupil, pupilGlow);
-  for (const o of eye.children) o.renderOrder = 5;
-  let eyeSpec = { rx: 0.5, ry: 0.34, pupil: 1 };
+  const pupilG = new THREE.Group();
+  let eyeSpec = null;
+  /** A flat band of half-width w along a polyline. */
+  function ribbon(pts, w) {
+    const closed = Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]) < 1e-3;
+    const p = [], idx = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i > 0 ? i - 1 : closed ? pts.length - 2 : 0], b = pts[i < pts.length - 1 ? i + 1 : closed ? 1 : i];
+      let tx = b[0] - a[0], ty = b[1] - a[1]; const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
+      p.push(pts[i][0] - ty * w, pts[i][1] + tx * w, 0, pts[i][0] + ty * w, pts[i][1] - tx * w, 0);
+      if (i) idx.push(2 * i - 2, 2 * i - 1, 2 * i, 2 * i - 1, 2 * i + 1, 2 * i);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3)); g.setIndex(idx);
+    return g;
+  }
+  const shapeGeo = (pts) => new THREE.ShapeGeometry(new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y))));
+  function buildEye(s) {
+    for (const o of [...eye.children, ...pupilG.children]) { o.geometry?.dispose(); o.parent.remove(o); }
+    const add = (parent, o, order = 5) => { o.renderOrder = order; parent.add(o); return o; };
+    add(eye, new THREE.Mesh(ribbon(s.ring, s.ringW * 2.4), ringGlowMat), 4);
+    add(eye, new THREE.Mesh(ribbon(s.ring, s.ringW), glowMat(0.92)));
+    for (const l of s.lashes) add(eye, new THREE.Mesh(ribbon(l, s.ringW * 0.62), glowMat(0.9)));
+    if (s.sparkle) add(eye, new THREE.Mesh(shapeGeo(s.sparkle), glowMat(0.95)));
+    add(eye, pupilGlow, 4); add(eye, pupilG);
+    const p = s.pupil.shape ? add(pupilG, new THREE.Mesh(shapeGeo(s.pupil.shape), glowMat(0.95))) : add(pupilG, new THREE.Mesh(new THREE.CircleGeometry(1, 48), glowMat(0.95)));
+    if (!s.pupil.shape) p.scale.set(s.pupil.r, s.pupil.r, 1);
+    if (s.dot) { const d = add(pupilG, new THREE.Mesh(new THREE.CircleGeometry(1, 32), inkMat), 6); d.position.set(s.dot.x, s.dot.y, 0.001); d.scale.set(s.dot.r, s.dot.r, 1); }
+    eyeSpec = s;
+  }
 
   let character = PRESETS.glyphh;
   function setCharacter(c, quick) {
     character = c;
-    const m = buildMesh(c, quick ? 56 : 84);
+    const m = buildMesh(c, quick ? 60 : 96);
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(m.positions, 3));
     g.setAttribute("normal", new THREE.BufferAttribute(m.normals, 3));
@@ -105,9 +131,8 @@ export function createFace(canvas) {
     uniforms.uStyle.value = Math.min(style, 2);
     head.add(occMesh);
     if (style === 3) head.add(points); else head.add(lineMesh);
-    eyeSpec = m.eye;
+    buildEye(m.eye);
     eye.position.set(m.eye.x, m.eye.y, m.eye.z);
-    ring.scale.set(m.eye.rx, m.eye.ry, 1); ringGlow.scale.copy(ring.scale);
     baseColor.set(c.color || "#ad5df8");
     uniforms.uDensity.value = c.density || 22;
   }
@@ -167,12 +192,13 @@ export function createFace(canvas) {
     const lid = 1 - Math.sin(blink * Math.PI) * 0.92;
     eye.scale.set(1, lid, 1);
     // the pupil looks toward the pointer, sits right of center like the mark, and dilates with the voice
-    const pr = eyeSpec.ry * 0.26 * eyeSpec.pupil * (1 + open * 0.45 + (state === "listening" ? mic * 0.4 : 0));
-    pupil.scale.set(pr, pr, 1);
-    pupil.position.set(eyeSpec.rx * (0.3 + mx * 0.1), eyeSpec.ry * (0.05 - my * 0.12), 0.01);
-    pupilGlow.position.copy(pupil.position); pupilGlow.scale.set(pr * 3.2, pr * 3.2, 1);
-    ringGlow.material.opacity = 0.25 + open * 0.5 + (state === "listening" ? 0.2 : 0);
-    ringGlow.material.color.copy(color); pupilGlow.material.color.copy(color);
+    const ps = eyeSpec.scale * (1 + open * 0.3 + (state === "listening" ? mic * 0.3 : 0));
+    pupilG.scale.set(ps, ps, 1);
+    pupilG.position.set(eyeSpec.pupil.x + mx * 0.06, eyeSpec.pupil.y - my * 0.05, 0.002);
+    const pr = (eyeSpec.pupil.shape ? 0.3 : eyeSpec.pupil.r) * ps;
+    pupilGlow.position.copy(pupilG.position); pupilGlow.scale.set(pr * 3.4, pr * 3.4, 1);
+    ringGlowMat.opacity = 0.22 + open * 0.5 + (state === "listening" ? 0.2 : 0);
+    ringGlowMat.color.copy(color); pupilGlow.material.color.copy(color);
     for (const r of rings) r.m.rotation.z += r.speed * dt * spin[state];
     moteCloud.rotation.y += dt * 0.03 * spin[state];
     renderer.render(scene, camera);

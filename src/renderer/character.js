@@ -1,103 +1,192 @@
-// character — the Glyphh alien cat, in 3D: a wide head with two pointed ears
-// (the left one tall and leaning out), one big oval eye with an off-center
-// pupil, and the R-shaped body (a loop with a hole through it), two legs and a
-// curled tail. It is a signed distance field of smoothly blended shapes,
-// meshed with surface nets; every proportion is a slider, so variations are
-// presets and anyone can make their own. No model files.
+// character — the Glyphh alien cat in 3D, built from the mascot's own outline
+// (design/brand/cats): the leaning head with its big right ear, the small left
+// ear, the ringed eye, the body with the gap between the legs, and the tail.
+// The flat mark is extruded into a solid with rounded edges (a signed distance
+// field, meshed with surface nets), so it is the mark, not a likeness of it.
+// The bot variants are parts: heads (spiky, tall, folded, round), tails, eyes
+// and extras, mixed freely and saved as your own characters. No model files.
 
 export const PARAMS = {
-  head:   { label: "Head", min: 0.8, max: 1.25, step: 0.01 },
-  headW:  { label: "Head width", min: 0.8, max: 1.25, step: 0.01 },
-  earL:   { label: "Left ear", min: 0.5, max: 1.5, step: 0.01 },
-  earR:   { label: "Right ear", min: 0.5, max: 1.5, step: 0.01 },
-  earOut: { label: "Ear lean", min: 0.4, max: 1.6, step: 0.01 },
-  eye:    { label: "Eye", min: 0.7, max: 1.3, step: 0.01 },
-  pupil:  { label: "Pupil", min: 0.6, max: 1.6, step: 0.01 },
-  body:   { label: "Body", min: 0.7, max: 1.3, step: 0.01 },
-  loop:   { label: "Loop", min: 0, max: 1.4, step: 0.01 },
-  legs:   { label: "Legs", min: 0.6, max: 1.4, step: 0.01 },
-  tail:   { label: "Tail", min: 0, max: 1.5, step: 0.01 },
+  depth: { label: "Depth", min: 0.4, max: 2, step: 0.01 },
+  bevel: { label: "Roundness", min: 0, max: 1.6, step: 0.01 },
+  eye:   { label: "Eye", min: 0.8, max: 1.2, step: 0.01 },
+  pupil: { label: "Pupil", min: 0.6, max: 1.5, step: 0.01 },
 };
-export const HAIR = []; // the cat has none; kept so the editor can hide the control
 export const STYLES = { contour: "Contour lines", grid: "Wire grid", points: "Points", hologram: "Hologram" };
 
-const base = Object.fromEntries(Object.keys(PARAMS).map((k) => [k, 1]));
-export const PRESETS = {
-  glyphh: { name: "Glyphh", ...base, style: "contour", color: "#ad5df8" },
+// the mark's parts, in its own 165×200 drawing units
+const HEADS = {
+  classic: { name: "Classic", top: "L135 13 L123 57", ear: "M28 15 L62 42 L39 54 Z" },
+  spiky:   { name: "Spiky", top: "L99 10 L111 34 L135 13 L123 57", ear: "M28 15 L62 42 L39 54 Z" },
+  tall:    { name: "Tall ears", top: "L138 9 L123 57", ear: "M22 9 L62 42 L39 54 Z" },
+  folded:  { name: "Folded ear", top: "L110 26 L138 26 L123 57", ear: "M28 15 L62 42 L39 54 Z" },
+  round:   { name: "Round ears", top: "C106 14 142 6 123 57", ear: "M36 20 C26 32 32 50 39 54 L62 42 C56 30 48 18 36 20 Z" },
+};
+const TAILS = {
+  spike: { name: "Spike", d: "L112 150 C126 152 136 151 145 149 C137 158 130 164 124 169" },
+  bolt:  { name: "Bolt", d: "L112 148 L136 140 L128 152 L152 146 L126 168" },
+  curl:  { name: "Curl", d: "L112 150 C132 150 150 140 146 126 C143 138 132 158 124 169" },
+  long:  { name: "Long", d: "L112 150 C130 152 150 150 160 140 C150 160 134 166 124 169" },
+};
+const RING = "M45 104 C43 89 70 66 96 64 C116 62 124 80 121 97 C118 116 100 126 86 122 C70 118 47 112 45 104 Z";
+const EYES = {
+  dot:    { name: "Classic", ring: RING, pupil: { c: [92, 94, 12] }, dot: [96.2, 89.8, 3.6] },
+  side:   { name: "Side-eye", ring: RING, pupil: { c: [68, 97, 12] }, dot: [72.2, 92.8, 3.6] },
+  big:    { name: "Big eye", ring: RING, pupil: { c: [88, 94, 19] }, dot: [94.65, 87.35, 5.7] },
+  sleepy: { name: "Sleepy", ring: "M45 104 C60 96 100 90 121 97 C118 116 100 126 86 122 C70 118 47 112 45 104 Z", pupil: { c: [92, 107, 9] } },
+  heart:  { name: "Heart", ring: RING, pupil: { d: "M92 108 C79 99 74 92 76 86.5 C78 80 87 79 92 86 C97 79 106 80 108 86.5 C110 92 105 99 92 108 Z" },
+            lashes: "M84 65 Q81 58 78 52 M100 61 Q101 54 104 47 M114 63 Q119 56 125 51 M122 74 Q129 70 136 69",
+            sparkle: "M68 70 L70 75.5 L75.5 77.5 L70 79.5 L68 85 L66 79.5 L60.5 77.5 L66 75.5 Z" },
+  star:   { name: "Star", ring: RING, pupil: { d: "M93 77 L97.8 87.6 L109 88.3 L100.4 95.6 L103 106.8 L93 100.8 L83 106.8 L85.6 95.6 L77 88.3 L88.2 87.6 Z" } },
+};
+const EXTRAS = { none: { name: "None" }, antenna: { name: "Antenna" }, cape: { name: "Cape" }, bolt: { name: "Bolt mark" } };
+const GAP = "M61 138 L99 150 L100 172 L51 171 Z";
+const BOLT = "M74 142 L88 142 L82 152 L94 152 L72 170 L78 157 L68 157 Z";
+const CAPE = "M46 128 C30 140 16 162 10 182 L44 181 Z";
+
+export const PARTS = {
+  head: { label: "Head", options: HEADS },
+  tail: { label: "Tail", options: TAILS },
+  look: { label: "Eye", options: EYES },
+  extra: { label: "Extra", options: EXTRAS },
 };
 
-// ── SDF primitives ────────────────────────────────────────────────────
-const len3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
-function ell(px, py, pz, cx, cy, cz, rx, ry, rz) {
-  const x = (px - cx) / rx, y = (py - cy) / ry, z = (pz - cz) / rz;
-  const k0 = len3(x, y, z), k1 = len3(x / rx, y / ry, z / rz);
-  return k1 === 0 ? -Math.min(rx, ry, rz) : (k0 * (k0 - 1)) / k1;
-}
-function cap(px, py, pz, ax, ay, az, bx, by, bz, r) {
-  const pax = px - ax, pay = py - ay, paz = pz - az, bax = bx - ax, bay = by - ay, baz = bz - az;
-  const h = Math.max(0, Math.min(1, (pax * bax + pay * bay + paz * baz) / (bax * bax + bay * bay + baz * baz)));
-  return len3(pax - bax * h, pay - bay * h, paz - baz * h) - r;
-}
-/** A capsule whose radius tapers from ra at a to rb at b: an ear, a horn, a claw. */
-function cone(px, py, pz, ax, ay, az, bx, by, bz, ra, rb) {
-  const pax = px - ax, pay = py - ay, paz = pz - az, bax = bx - ax, bay = by - ay, baz = bz - az;
-  const h = Math.max(0, Math.min(1, (pax * bax + pay * bay + paz * baz) / (bax * bax + bay * bay + baz * baz)));
-  return len3(pax - bax * h, pay - bay * h, paz - baz * h) - (ra + (rb - ra) * h);
-}
-const smin = (a, b, k) => { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.min(a, b) - h * h * k * 0.25; };
-const smax = (a, b, k) => -smin(-a, -b, k);
+const base = { depth: 1, bevel: 1, eye: 1, pupil: 1, head: "classic", tail: "spike", look: "dot", extra: "none" };
+const cat = (name, o = {}) => ({ name, ...base, ...o, style: "contour", color: "#ad5df8" });
+// the bot cats from the brand exploration
+export const PRESETS = {
+  glyphh: cat("Glyphh"),
+  "side-eye": cat("Side-eye", { look: "side" }),
+  "big-eye": cat("Big eye", { look: "big" }),
+  sleepy: cat("Sleepy", { look: "sleepy" }),
+  wink: cat("Wink", { look: "heart" }),
+  "star-eye": cat("Star eye", { look: "star" }),
+  "tall-ears": cat("Tall ears", { head: "tall" }),
+  "folded-ear": cat("Folded ear", { head: "folded" }),
+  spiky: cat("Spiky", { head: "spiky" }),
+  "round-ears": cat("Round ears", { head: "round" }),
+  "bolt-tail": cat("Bolt tail", { tail: "bolt" }),
+  "curl-tail": cat("Curl tail", { tail: "curl" }),
+  "long-tail": cat("Long tail", { tail: "long" }),
+  antenna: cat("Antenna", { extra: "antenna" }),
+  cape: cat("Cape", { extra: "cape" }),
+  "bolt-mark": cat("Bolt mark", { extra: "bolt" }),
+};
 
-/** The cat for a set of parameters: its distance field and where its eye goes. */
+// ── the mark's paths, flattened into polygons in world units ───────────
+const S = 42, OX = 85, OY = 100;
+const W = (x, y) => [(x - OX) / S, (OY - y) / S];
+/** Absolute M/L/C/Q/Z paths → a list of polylines (each a list of [x,y] in world units). */
+function flatten(d) {
+  const t = d.match(/[MLCQZ]|-?\d*\.?\d+/g), out = [];
+  let cur = null, x = 0, y = 0, i = 0, sx = 0, sy = 0, cmd = "";
+  const num = () => Number(t[i++]);
+  while (i < t.length) {
+    if (/[MLCQZ]/.test(t[i])) cmd = t[i++];
+    if (cmd === "M") { x = num(); y = num(); sx = x; sy = y; cur = [W(x, y)]; out.push(cur); cmd = "L"; }
+    else if (cmd === "L") { x = num(); y = num(); cur.push(W(x, y)); }
+    else if (cmd === "C") {
+      const a = num(), b = num(), c = num(), e = num(), f = num(), g = num();
+      for (let k = 1; k <= 12; k++) { const s = k / 12, u = 1 - s;
+        cur.push(W(u * u * u * x + 3 * u * u * s * a + 3 * u * s * s * c + s * s * s * f, u * u * u * y + 3 * u * u * s * b + 3 * u * s * s * e + s * s * s * g)); }
+      x = f; y = g;
+    } else if (cmd === "Q") {
+      const a = num(), b = num(), f = num(), g = num();
+      for (let k = 1; k <= 8; k++) { const s = k / 8, u = 1 - s;
+        cur.push(W(u * u * x + 2 * u * s * a + s * s * f, u * u * y + 2 * u * s * b + s * s * g)); }
+      x = f; y = g;
+    } else if (cmd === "Z") { x = sx; y = sy; cur.push(W(x, y)); cmd = ""; }
+    else i++;
+  }
+  // drop repeated points (a curve that ends where Z closes), which would break a band's direction
+  return out.map((l) => l.filter((p, k) => !k || Math.hypot(p[0] - l[k - 1][0], p[1] - l[k - 1][1]) > 1e-4));
+}
+/** Signed distance to a closed polygon (negative inside). */
+function polyD(p, x, y) {
+  let d = (x - p[0][0]) ** 2 + (y - p[0][1]) ** 2, s = 1;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+    const ex = p[j][0] - p[i][0], ey = p[j][1] - p[i][1], wx = x - p[i][0], wy = y - p[i][1];
+    const h = Math.max(0, Math.min(1, (wx * ex + wy * ey) / (ex * ex + ey * ey || 1)));
+    const bx = wx - ex * h, by = wy - ey * h; d = Math.min(d, bx * bx + by * by);
+    const c1 = y >= p[i][1], c2 = y < p[j][1], c3 = ex * wy > ey * wx;
+    if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) s = -s;
+  }
+  return s * Math.sqrt(d);
+}
+/** Distance to an open (or closed, if the ends meet) polyline. */
+function lineD(p, x, y) {
+  let d = Infinity;
+  for (let i = 1; i < p.length; i++) {
+    const ax = p[i - 1][0], ay = p[i - 1][1], ex = p[i][0] - ax, ey = p[i][1] - ay, wx = x - ax, wy = y - ay;
+    const h = Math.max(0, Math.min(1, (wx * ex + wy * ey) / (ex * ex + ey * ey || 1)));
+    d = Math.min(d, Math.hypot(wx - ex * h, wy - ey * h));
+  }
+  return d;
+}
+const extrude = (d2, z, h, r) => { const wx = d2 + r, wy = Math.abs(z) - (h - r); return Math.min(Math.max(wx, wy), 0) + Math.hypot(Math.max(wx, 0), Math.max(wy, 0)) - r; };
+const scaleAbout = (pts, cx, cy, k) => pts.map(([x, y]) => [cx + (x - cx) * k, cy + (y - cy) * k]);
+const centroid = (pts) => { let x = 0, y = 0; for (const p of pts) { x += p[0]; y += p[1]; } return [x / pts.length, y / pts.length]; };
+
+/** The cat for a set of choices: its distance field and its eye. */
 export function figure(c) {
   const q = { ...base, ...c };
-  const hs = q.head, hw = q.headW * hs, bs = q.body, eo = q.earOut;
-  const head = { x: 0.08, y: 0.42, z: 0 };
-  // the eye is most of the face: a wide oval set toward the right
-  const eye = { x: head.x + 0.2 * hw, y: head.y - 0.04, rx: 0.6 * q.eye * hw, ry: 0.42 * q.eye * hs };
+  const head = HEADS[q.head] || HEADS.classic, tail = TAILS[q.tail] || TAILS.spike, look = EYES[q.look] || EYES.dot;
+  const body = flatten(`M40 62 ${head.top} C140 70 144 104 128 121 L112 133 ${tail.d} L128 179 L35 180 L44 131 C18 118 20 80 40 62 Z`)[0];
+  const ear = flatten(head.ear)[0], gap = flatten(GAP)[0], bolt = flatten(BOLT)[0], cape = flatten(CAPE)[0];
+  const h = 0.3 * q.depth, r = Math.min(0.11 * q.bevel, h * 0.9), groove = 0.07;
 
-  function sdf(x, y, z) {
-    // head: a wide rounded triangle, broad on top, heavier on the eye side
-    let d = ell(x, y, z, head.x, head.y + 0.05, head.z, 1.08 * hw, 0.72 * hs, 0.66 * hs);
-    d = smin(d, ell(x, y, z, head.x + 0.32 * hw, head.y - 0.12, 0.06, 0.78 * hw, 0.62 * hs, 0.6 * hs), 0.25);
-    // ears grow out of the head's top corners: the left one tall, broad and leaning out, the right one shorter
-    d = smin(d, cone(x, y, z, head.x - 0.62 * hw, head.y + 0.36 * hs, -0.06, head.x - 0.62 * hw - 0.34 * eo, head.y + 0.36 * hs + 1.05 * q.earL, -0.1, 0.4 * hs, 0.025), 0.2);
-    d = smin(d, cone(x, y, z, head.x + 0.66 * hw, head.y + 0.34 * hs, -0.06, head.x + 0.66 * hw + 0.34 * eo, head.y + 0.34 * hs + 0.7 * q.earR, -0.1, 0.32 * hs, 0.025), 0.18);
-    // the eye sits in a shallow oval socket
-    d = smax(d, -ell(x, y, z, eye.x, eye.y, 0.68 * hs, eye.rx * 0.92, eye.ry * 0.92, 0.14), 0.05);
-    // body: the bowl of the R, with its left edge running straight down from the head
-    const bx = -0.3;
-    d = smin(d, ell(x, y, z, bx, -0.62 * bs, 0, 0.64 * bs, 0.7 * bs, 0.46 * bs), 0.32);
-    if (q.loop > 0) d = smax(d, -cap(x, y, z, bx + 0.02, -0.66 * bs, -1, bx + 0.02, -0.66 * bs, 1, 0.24 * q.loop), 0.05);
-    const lg = q.legs, footY = -0.62 * bs - 0.6 - 0.55 * lg;
-    d = smin(d, cap(x, y, z, bx - 0.4, -0.9 * bs, 0.02, bx - 0.42, footY, 0.05, 0.16), 0.14);       // the straight leg
-    d = smin(d, cap(x, y, z, bx + 0.42, -1.0 * bs, 0.02, bx + 0.9, footY, 0.05, 0.15), 0.12);       // the R's diagonal leg
-    d = smin(d, ell(x, y, z, bx - 0.4, footY, 0.1, 0.22, 0.08, 0.22), 0.06);                        // feet
-    d = smin(d, ell(x, y, z, bx + 0.95, footY, 0.1, 0.22, 0.08, 0.22), 0.06);
-    if (q.tail > 0) { // a smooth curl off the back, up and to the right
-      const t = q.tail, ox = bx + 0.75, oy = footY + 0.45;
-      let px = ox, py = oy;
-      for (let i = 1; i <= 8; i++) {
-        const a = -0.35 + (i / 8) * 2.2, r = 0.55 * t;
-        const nx2 = ox + Math.sin(a) * r * 1.2 + r * 0.25, ny2 = oy - 0.15 + (1 - Math.cos(a)) * r * 0.9;
-        d = smin(d, cap(x, y, z, px, py, -0.12, nx2, ny2, -0.12, 0.08 - i * 0.005), 0.06);
-        px = nx2; py = ny2;
-      }
+  // the eye, scaled about the ring's middle
+  let ring = flatten(look.ring)[0];
+  const xs = ring.map((p) => p[0]), ys = ring.map((p) => p[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2, k = q.eye;
+  ring = scaleAbout(ring, cx, cy, k);
+  const ringW = (8 / S) * 0.5 * k;
+  const P = (x, y) => { const [wx, wy] = W(x, y); return [cx + (wx - cx) * k, cy + (wy - cy) * k]; };
+  let pupil;
+  if (look.pupil.c) { const [px, py, pr] = look.pupil.c; const [x, y] = P(px, py); pupil = { x, y, r: (pr / S) * k }; }
+  else { const pts = scaleAbout(flatten(look.pupil.d)[0], cx, cy, k); const [x, y] = centroid(pts); pupil = { x, y, r: 1, shape: pts.map(([a, b]) => [a - x, b - y]) }; }
+  const dot = look.dot ? (() => { const [x, y] = P(look.dot[0], look.dot[1]); return { x: x - pupil.x, y: y - pupil.y, r: (look.dot[2] / S) * k }; })() : null;
+  const lashes = look.lashes ? flatten(look.lashes).map((l) => scaleAbout(l, cx, cy, k)) : [];
+  const sparkle = look.sparkle ? scaleAbout(flatten(look.sparkle)[0], cx, cy, k) : null;
+
+  const antenna = q.extra === "antenna";
+  const [aax, aay] = W(86, 46), [abx, aby] = W(92, 18), [bx, by] = W(93, 14);
+  function flat(x, y) { // the mark's solid, flat
+    let d = Math.min(polyD(body, x, y), polyD(ear, x, y));
+    if (antenna) {
+      const ex = abx - aax, ey = aby - aay, wx = x - aax, wy = y - aay, t = Math.max(0, Math.min(1, (wx * ex + wy * ey) / (ex * ex + ey * ey)));
+      d = Math.min(d, Math.hypot(wx - ex * t, wy - ey * t) - 0.07, Math.hypot(x - bx, y - by) - 7 / S);
     }
-    return d;
+    let hole = polyD(gap, x, y);
+    if (q.extra === "bolt") hole = Math.max(hole, -polyD(bolt, x, y));
+    return Math.max(d, -hole);
   }
-  return { sdf, eye };
+  const hasCape = q.extra === "cape";
+  // the flat parts depend on x and y only: worked out once per column, then extruded along z
+  const plan = (x, y) => [flat(x, y), lineD(ring, x, y), hasCape ? polyD(cape, x, y) : 1];
+  function lift([fd, rd, cd], z) {
+    let d = extrude(fd, z, h, r);
+    if (hasCape) d = Math.min(d, extrude(cd, z + h * 0.7, h * 0.3, Math.min(r, h * 0.25)));
+    // the eye's ring is cut into both faces, so it reads from any side
+    return Math.max(d, -Math.max(rd - ringW, h - groove - Math.abs(z)));
+  }
+  const sdf = (x, y, z) => lift(plan(x, y), z);
+  return { sdf, plan, lift, h, eye: { x: cx, y: cy, ring: ring.map(([a, b]) => [a - cx, b - cy]), ringW, pupil: { ...pupil, x: pupil.x - cx, y: pupil.y - cy }, dot, scale: q.pupil,
+    lashes: lashes.map((l) => l.map(([a, b]) => [a - cx, b - cy])), sparkle: sparkle && sparkle.map(([a, b]) => [a - cx, b - cy]) } };
 }
 
 /** Surface nets: a clean, quad-dominant mesh of the cat, plus where to draw its eye. */
-export function mesh(c, N = 84) {
-  const { sdf, eye } = figure(c);
-  const B = { x0: -1.7, x1: 1.9, y0: -2.25, y1: 2.35, z0: -1.0, z1: 1.0 };
-  const nx = N, ny = Math.round(N * (B.y1 - B.y0) / (B.x1 - B.x0)), nz = Math.round(N * (B.z1 - B.z0) / (B.x1 - B.x0));
+export function mesh(c, N = 96) {
+  const { sdf, plan, lift, eye, h } = figure(c);
+  const B = { x0: -2.05, x1: 2.05, y0: -2.05, y1: 2.45, z0: -0.75, z1: 0.75 };
+  const nx = N, ny = Math.round(N * (B.y1 - B.y0) / (B.x1 - B.x0)), nz = Math.round(N * 0.9 * (B.z1 - B.z0) / (B.x1 - B.x0)) * 2;
   const sx = (B.x1 - B.x0) / nx, sy = (B.y1 - B.y0) / ny, sz = (B.z1 - B.z0) / nz;
   const field = new Float32Array((nx + 1) * (ny + 1) * (nz + 1));
   const I = (i, j, k) => i + (nx + 1) * (j + (ny + 1) * k);
-  for (let k = 0; k <= nz; k++) for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++)
-    field[I(i, j, k)] = sdf(B.x0 + i * sx, B.y0 + j * sy, B.z0 + k * sz);
+  for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
+    const col = plan(B.x0 + i * sx, B.y0 + j * sy);
+    for (let k = 0; k <= nz; k++) field[I(i, j, k)] = lift(col, B.z0 + k * sz);
+  }
 
   const vidx = new Int32Array(nx * ny * nz).fill(-1);
   const C = (i, j, k) => i + nx * (j + ny * k);
@@ -133,11 +222,9 @@ export function mesh(c, N = 84) {
     const gx = sdf(x + e, y, z) - sdf(x - e, y, z), gy = sdf(x, y + e, z) - sdf(x, y - e, z), gz = sdf(x, y, z + e) - sdf(x, y, z - e);
     const l = Math.hypot(gx, gy, gz) || 1; n[p] = gx / l; n[p + 1] = gy / l; n[p + 2] = gz / l;
   }
-  // the eye sits on the surface: march in from the front to find it
-  let ez = 1.2; for (let s = 0; s < 80; s++) { const dd = sdf(eye.x, eye.y, ez); if (dd < 0.002) break; ez -= Math.max(dd, 0.005); }
   return {
     positions: new Float32Array(pos), normals: n,
     index: pos.length / 3 > 65535 ? new Uint32Array(idx) : new Uint16Array(idx),
-    eye: { ...eye, z: ez + 0.02, pupil: { ...base, ...c }.pupil },
+    eye: { ...eye, z: h + 0.01 },
   };
 }

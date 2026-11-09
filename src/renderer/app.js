@@ -7,7 +7,7 @@
 // like the desktop's layouts: cols × rows, column widths, cells that span).
 // Every app is one live instance; moving it moves its element.
 import { createFace } from "./face.js";
-import { PRESETS, PARAMS, STYLES } from "./character.js";
+import { PRESETS, PARAMS, PARTS, STYLES } from "./character.js";
 import { createVoice } from "./voice.js";
 import { APPS, mountApp, webAppFor, registerCustom, slugify, iconHTML, onIconChange } from "./apps.js";
 
@@ -511,7 +511,7 @@ const voice = createVoice({
 voice.setThreshold(settings.vadThreshold);
 setInterval(() => { if (recording !== voice.recording) { recording = voice.recording; updateFace(); } }, 100);
 
-// ── characters: Man, Woman, Boy, Girl, and your own ───────────────────
+// ── characters: the Glyphh cat, its bot variants, and your own ────────
 let chars = (await os.store.get("characters")) || { active: "glyphh", custom: {} };
 const allChars = () => ({ ...PRESETS, ...chars.custom });
 const charOf = (key) => structuredClone(allChars()[key] || PRESETS.glyphh);
@@ -537,6 +537,15 @@ function drawCharacter() {
   $("#char-color").value = draft.color || "#ad5df8"; $("#char-density").value = draft.density || 26;
   $("#char-name").value = chars.custom[draftKey] ? draft.name : "";
   $("#char-delete").hidden = !chars.custom[draftKey];
+  const Q = $("#char-parts"); Q.innerHTML = "";
+  for (const [k, part] of Object.entries(PARTS)) {
+    const l = document.createElement("label"); l.textContent = part.label;
+    const s = document.createElement("select");
+    s.innerHTML = Object.entries(part.options).map(([v, o]) => `<option value="${v}">${o.name}</option>`).join("");
+    s.value = draft[k] || Object.keys(part.options)[0];
+    s.onchange = () => { draft[k] = s.value; remesh(false); };
+    l.append(s); Q.append(l);
+  }
   const S = $("#char-sliders"); S.innerHTML = "";
   for (const [k, p] of Object.entries(PARAMS)) {
     const l = document.createElement("label"); l.textContent = p.label;
