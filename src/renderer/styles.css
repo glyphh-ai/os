@@ -185,7 +185,14 @@ webview { flex: 1; width: 100%; background: #fff0; }
 .toolbar input { flex: 1; min-width: 0; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; outline: 0; color: var(--text); font-size: 12px; }
 .chip.folder { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conn { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid rgba(173, 93, 248, 0.08); }
-.conn .dot { flex: none; } .conn .n { flex: 1; } .conn .st { color: var(--text-3); font-size: 11px; }
+.conn .dot { flex: none; } .conn .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .conn .st { color: var(--text-3); font-size: 11px; }
+.conn .tb { padding: 2px 7px; font-size: 11px; border-color: var(--line-2); }
+.conn-add { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); }
+.conn-add[hidden] { display: none; }
+.conn-add input { background: var(--bg-2, rgba(255,255,255,0.04)); border: 1px solid var(--line-2); border-radius: 7px; padding: 6px 8px; color: var(--text); font-size: 12px; }
+.conn-add .row { display: flex; justify-content: flex-end; gap: 6px; }
+.conn-add button { border: 1px solid var(--line-2); border-radius: 7px; padding: 4px 12px; font-size: 12px; cursor: pointer; background: transparent; color: var(--text-2); }
+.conn-add button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* modals */
 .modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: start end; padding: 56px 16px; background: rgba(0, 0, 0, 0.35); backdrop-filter: blur(4px); }

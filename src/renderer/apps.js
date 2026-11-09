@@ -412,19 +412,69 @@ function mountRecents(el, ctx) {
 // ── connections: what the user's Claude can reach ────────────────────
 function mountConnections(el, ctx) {
   const body = h("div", { class: "scroll" });
+  const form = h("div", { class: "conn-add", hidden: true });
+  let watch = null;
+  // after a sign-in, look again until it connects (the CLI catches the redirect and reconnects)
+  const watchFor = (name) => {
+    clearInterval(watch); let n = 0;
+    watch = setInterval(async () => {
+      const list = await os.agent.connections().catch(() => []);
+      const c = list.find((x) => x.name === name);
+      if (c?.status === "connected" || ++n > 60) { clearInterval(watch); load(); if (c?.status === "connected") ctx.toast?.(`${name} connected`); }
+    }, 2000);
+  };
+  const act = async (fn, msg) => { try { await fn(); } catch (e) { alert(`${msg}: ${String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, "")}`); } load(); };
+  async function signIn(c) {
+    try {
+      const r = await os.agent.connAuth(c.name);
+      if (!r.requiresUserAction) { await os.agent.connReconnect(c.name).catch(() => {}); return load(); }
+      if (r.callbackExpected) watchFor(c.name);
+      else body.prepend(h("div", { class: "empty-note" }, `Finish signing ${c.name} in on claude.ai in your browser, then press ↻.`));
+    } catch (e) { alert(`Couldn't sign ${c.name} in: ${String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, "")}`); }
+  }
   async function load() {
     body.innerHTML = "";
     const list = await os.agent.connections().catch(() => []);
     if (!list.length) { body.append(h("div", { class: "empty-note" }, "Waiting for Claude to start…")); setTimeout(load, 2500); return; }
     for (const c of list) {
       const st = c.status || "unknown";
+      const btns = [];
+      if (st === "needs-auth") btns.push(h("button", { class: "tb", onclick: () => signIn(c) }, "sign in"));
+      if (st === "failed") btns.push(h("button", { class: "tb", title: c.error || "", onclick: () => act(() => os.agent.connReconnect(c.name), `Couldn't reconnect ${c.name}`) }, "retry"));
+      if (st === "disabled") btns.push(h("button", { class: "tb", onclick: () => act(() => os.agent.connToggle(c.name, true), `Couldn't turn ${c.name} on`) }, "turn on"));
+      else if (c.name !== "os") btns.push(h("button", { class: "tb", onclick: () => act(() => os.agent.connToggle(c.name, false), `Couldn't turn ${c.name} off`) }, "off"));
+      if (c.scope === "user") btns.push(h("button", { class: "tb", title: "Remove", onclick: () => confirm(`Remove ${c.name} from Claude on this Mac?`) && act(() => os.agent.connRemove(c.name), `Couldn't remove ${c.name}`) }, "✕"));
       body.append(h("div", { class: "conn" }, h("span", { class: "dot " + (st === "connected" ? "ok" : st === "pending" ? "busy" : "bad") }),
-        h("span", { class: "n" }, c.name), h("span", { class: "st" }, st)));
+        h("span", { class: "n", title: c.error || c.config?.url || "" }, c.name), h("span", { class: "st" }, st), ...btns));
     }
-    body.append(h("div", { class: "empty-note", html: "These come from your Claude login: claude.ai connectors and your <code>claude mcp</code> servers.<br>Add email, calendar, Slack and more at claude.ai → Settings → Connectors; fix one that needs auth with <code>claude</code> → <code>/mcp</code>." }));
+    body.append(h("div", { class: "empty-note", html: "Add any MCP server by URL or command with <b>+ Add</b>; it's saved for every Claude on this Mac.<br>claude.ai connectors (Gmail, Slack…) are added at claude.ai → Settings → Connectors and show up here." }));
     ctx.connections(list);
   }
-  el.append(h("div", { class: "toolbar" }, h("span", { style: "flex:1;color:var(--text-3);font-size:11px" }, "Claude connections"), h("button", { class: "tb", onclick: load }, "↻")), body);
+  // + Add: a name and a URL (remote server) or a command (local server); sign in right after if it asks
+  const fName = h("input", { placeholder: "name, e.g. sentry", spellcheck: "false" });
+  const fTarget = h("input", { placeholder: "https://mcp.example.com/mcp  or  npx some-mcp-server", spellcheck: "false" });
+  const fHeader = h("input", { placeholder: "optional header, e.g. Authorization: Bearer …", spellcheck: "false" });
+  const fGo = h("button", { class: "primary" }, "Add");
+  fGo.onclick = async () => {
+    const name = fName.value.trim(), target = fTarget.value.trim();
+    if (!/^[\w.-]+$/.test(name) || !target) return alert("Give it a name (letters, numbers, - or _) and a URL or command.");
+    fGo.disabled = true; fGo.textContent = "Adding…";
+    try {
+      await os.agent.connAdd({ name, target, headers: fHeader.value.trim() ? [fHeader.value.trim()] : [] });
+      form.hidden = true; fName.value = fTarget.value = fHeader.value = "";
+      // give the restarted Claude a moment, then sign in if the server wants it
+      setTimeout(async () => {
+        await load();
+        const c = (await os.agent.connections().catch(() => [])).find((x) => x.name === name);
+        if (c?.status === "needs-auth") signIn(c);
+      }, 3000);
+    } catch (e) { alert(`Couldn't add ${name}: ${String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, "")}`); }
+    fGo.disabled = false; fGo.textContent = "Add";
+  };
+  form.append(fName, fTarget, fHeader, h("div", { class: "row" }, h("button", { class: "ghost", onclick: () => { form.hidden = true; } }, "Cancel"), fGo));
+  el.append(h("div", { class: "toolbar" }, h("span", { style: "flex:1;color:var(--text-3);font-size:11px" }, "Claude connections"),
+    h("button", { class: "tb", onclick: () => { form.hidden = !form.hidden; if (!form.hidden) fName.focus(); } }, "+ Add"),
+    h("button", { class: "tb", onclick: load }, "↻")), form, body);
   load();
-  return { refresh: load };
+  return { refresh: load, unmount: () => clearInterval(watch) };
 }

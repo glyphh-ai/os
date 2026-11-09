@@ -206,6 +206,32 @@ export class Agent {
     return this.servers;
   }
 
+  /** Sign a connection in: the CLI returns the provider's sign-in URL and, for its own servers,
+   *  listens on localhost for the redirect and reconnects by itself. claude.ai connectors sign in on claude.ai. */
+  async authConnection(name) {
+    if (!this.q) this.start();
+    return this.q.mcpAuthenticate(name);
+  }
+  async reconnectConnection(name) { if (!this.q) this.start(); await this.q.reconnectMcpServer(name); }
+  async toggleConnection(name, on) { if (!this.q) this.start(); await this.q.toggleMcpServer(name, on); }
+
+  /** Add an MCP server for every Claude on this Mac (user scope, the same list `claude mcp` shows). */
+  addConnection({ name, target, headers = [] }) {
+    const exe = claudeExecutable() || "claude";
+    const http = /^https?:\/\//i.test(target);
+    const args = ["mcp", "add", "--scope", "user"];
+    if (http) { args.push("--transport", "http"); for (const hd of headers) args.push("--header", hd); args.push(name, target); }
+    else args.push(name, "--", ...target.trim().split(/\s+/));
+    const out = execFileSync(exe, args, { encoding: "utf8", timeout: 20000 });
+    this.restart();
+    return out.trim();
+  }
+  removeConnection(name) {
+    const out = execFileSync(claudeExecutable() || "claude", ["mcp", "remove", "--scope", "user", name], { encoding: "utf8", timeout: 20000 });
+    this.restart();
+    return out.trim();
+  }
+
   newChat() { this.sessionId = null; this.restart(); }
 
   /** Pick up a past session: the next turn resumes it. Returns its conversation as plain text turns. */

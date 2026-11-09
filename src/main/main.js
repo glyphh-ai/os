@@ -97,6 +97,16 @@ handle("os:pick-folder", async () => {
 });
 handle("agent:models", () => agent.models);
 handle("agent:connections", () => agent.connections());
+// sign a connection in: open the provider's page in the user's browser; the CLI catches the redirect
+handle("conn:auth", async (name) => {
+  const r = await agent.authConnection(name);
+  if (r?.authUrl) shell.openExternal(r.authUrl);
+  return r || {};
+});
+handle("conn:reconnect", (name) => agent.reconnectConnection(name));
+handle("conn:toggle", (name, on) => agent.toggleConnection(name, on));
+handle("conn:add", (spec) => agent.addConnection(spec));
+handle("conn:remove", (name) => agent.removeConnection(name));
 handle("agent:busy", () => agent.busy);
 handle("connectors:ask", (kind) => askConnectors(kind));
 

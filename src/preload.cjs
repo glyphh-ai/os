@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("os", {
   agent: {
     send: inv("agent:send"), interrupt: inv("agent:interrupt"), newChat: inv("agent:new"),
     models: inv("agent:models"), connections: inv("agent:connections"), busy: inv("agent:busy"),
+    connAuth: inv("conn:auth"), connReconnect: inv("conn:reconnect"), connToggle: inv("conn:toggle"),
+    connAdd: inv("conn:add"), connRemove: inv("conn:remove"),
     sessions: inv("agent:sessions"), resume: inv("agent:resume"), session: inv("agent:session"),
     pickFolder: inv("os:pick-folder"), chooseFolder: inv("os:choose-folder"), deleteSession: inv("agent:delete-session"),
     onEvent: on("agent:event"),
