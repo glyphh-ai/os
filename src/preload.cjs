@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("os", {
     send: inv("bot:send"), interrupt: inv("bot:interrupt"), newChat: inv("bot:new"), busy: inv("bot:busy"),
     onEvent: on("bot:event"), onList: on("bot:list"),
   },
+  recording: { save: inv("rec:save") },
   swarm: {
     get: inv("swarm:get"), check: inv("swarm:check"), start: inv("swarm:start"), stop: inv("swarm:stop"),
     resume: inv("swarm:resume"), finish: inv("swarm:finish"), say: inv("swarm:say"), onEvent: on("swarm:event"),

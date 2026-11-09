@@ -8,6 +8,9 @@ const os = window.os;
 export function createVoice({ onMouth, onMic, onUtterance, onSpeaking, onError, onWho }) {
   const ctx = new AudioContext();
   const out = ctx.createAnalyser(); out.fftSize = 512; out.connect(ctx.destination);
+  // the tape: everything spoken also goes to a recorder, paused between lines so a long run stays a conversation
+  const tapeOut = ctx.createMediaStreamDestination(); out.connect(tapeOut);
+  let tape = null, tapeChunks = [];
   const buf = new Uint8Array(out.fftSize);
 
   // ── speaking ────────────────────────────────────────────────────────
@@ -28,7 +31,7 @@ export function createVoice({ onMouth, onMic, onUtterance, onSpeaking, onError, 
   }
 
   async function playNext() {
-    if (!queue.length) { playing = false; speaker = undefined; onWho?.(undefined); onSpeaking?.(false); return; }
+    if (!queue.length) { playing = false; speaker = undefined; onWho?.(undefined); onSpeaking?.(false); if (tape?.state === "recording") tape.pause(); return; }
     playing = true; onSpeaking?.(true);
     const gen = speakingGen;
     const item = queue.shift();
@@ -39,6 +42,7 @@ export function createVoice({ onMouth, onMic, onUtterance, onSpeaking, onError, 
     const src = ctx.createBufferSource(); src.buffer = audio; src.connect(out);
     current = src;
     if (speaker !== item.who) { speaker = item.who; onWho?.(item.who); }
+    if (tape?.state === "paused") tape.resume();
     src.onended = () => { current = null; playNext(); };
     src.start();
   }
@@ -130,6 +134,24 @@ export function createVoice({ onMouth, onMic, onUtterance, onSpeaking, onError, 
 
   return {
     feed, flush, say, stopSpeaking,
+    get taping() { return !!tape; },
+    startTape() {
+      if (tape) return;
+      tapeChunks = [];
+      tape = new MediaRecorder(tapeOut.stream, { mimeType: "audio/webm;codecs=opus" });
+      tape.ondataavailable = (e) => e.data.size && tapeChunks.push(e.data);
+      tape.start(1000);
+      if (!playing) tape.pause();
+    },
+    /** Stop the tape; the recording's bytes (webm/opus), or null if nothing was taped. */
+    async stopTape() {
+      if (!tape) return null;
+      const t = tape; tape = null;
+      if (t.state === "paused") t.resume();
+      await new Promise((r) => { t.onstop = r; t.stop(); });
+      const blob = new Blob(tapeChunks, { type: "audio/webm" }); tapeChunks = [];
+      return blob.size > 2000 ? new Uint8Array(await blob.arrayBuffer()) : null;
+    },
     get speaker() { return speaker; },
     get speaking() { return playing; },
     setThreshold(v) { threshold = v; },

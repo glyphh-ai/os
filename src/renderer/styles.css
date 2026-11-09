@@ -285,6 +285,7 @@ img.ico { object-fit: contain; border-radius: 3px; }
 
 .swarm-top { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 .swarm-top .tb.on { border-color: #fff; color: #fff; }
+.swarm-top .tb.rec.on { border-color: var(--bad); color: var(--bad); animation: pulse 1.6s infinite; }
 .swarm-goal { flex: 1; min-width: 0; display: flex; flex-direction: column; } .swarm-goal small { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; }
 .swarm-team { flex: none; display: flex; gap: 6px; padding: 8px 10px; overflow-x: auto; }
 .swarm-team:empty { display: none; }

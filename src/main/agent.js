@@ -129,7 +129,8 @@ export class Agent {
       resume: this.sessionId || undefined,
       stderr: (d) => this.emit({ type: "log", text: String(d) }),
     };
-    if (s.permissionMode === "auto") {
+    // GLYPHH_OS_AUTO=1: full auto for this run only (unattended test runs), whatever the setting says
+    if (s.permissionMode === "auto" || process.env.GLYPHH_OS_AUTO === "1") {
       options.permissionMode = "bypassPermissions";
       options.allowDangerouslySkipPermissions = true;
     } else {

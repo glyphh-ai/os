@@ -1,7 +1,7 @@
 // Glyphh OS — main process.
 import { app, BrowserWindow, ipcMain, session, systemPreferences, shell, webContents } from "electron";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -10,7 +10,7 @@ import { BotHub } from "./bots.js";
 import * as rpa from "./rpa.js";
 import * as sys from "./system.js";
 import * as voice from "./voice.js";
-import { getSettings, setSettings, readJson, writeJson } from "./store.js";
+import { getSettings, setSettings, readJson, writeJson, HOME } from "./store.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 app.setName("Glyphh OS");
@@ -97,6 +97,14 @@ handle("swarm:start", (spec) => hub.start(spec));
 handle("swarm:stop", () => hub.stop());
 handle("swarm:resume", () => hub.resume());
 handle("swarm:finish", (opts) => hub.finish(opts));
+// a swarm's taped conversation: next to its repo (in recordings/), else under ~/.glyphh/os/recordings; an .m4a too when ffmpeg is there
+handle("rec:save", async (name, bytes) => {
+  const dir = hub.swarm?.repo ? path.join(path.dirname(hub.swarm.repo), "recordings") : path.join(HOME, "recordings");
+  mkdirSync(dir, { recursive: true });
+  const base = path.join(dir, `${String(name).replace(/[^\w.-]+/g, "-")}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "")}`);
+  writeFileSync(base + ".webm", Buffer.from(bytes));
+  try { execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", base + ".webm", "-c:a", "aac", "-b:a", "128k", base + ".m4a"], { timeout: 120000 }); return base + ".m4a"; } catch { return base + ".webm"; }
+});
 // the user talks to the team: it lands in the stream and goes to Glyphh, who orchestrates
 handle("swarm:say", (t) => { hub.post("you", t); agent.send(`[swarm, from the user] ${t}`); });
 handle("voice:transcribe", (bytes, mime) => voice.transcribe(Buffer.from(bytes), mime));
@@ -163,6 +171,7 @@ function createWindow() {
       nodeIntegration: false,
       webviewTag: true,
       sandbox: false,
+      autoplayPolicy: "no-user-gesture-required", // the bots speak without a click first
     },
   });
   win.loadFile(path.join(ROOT, "dist/index.html"));
@@ -174,8 +183,15 @@ function createWindow() {
       setTimeout(() => win.webContents.executeJavaScript(line.startsWith("#")
         ? `document.querySelector(${JSON.stringify(line)}).click()`
         : `document.querySelector("#input").value = ${JSON.stringify(line)}; document.querySelector("#btn-send").click();`), 3000 + i * 800));
+    // GLYPHH_OS_SHOTS=<dir>: also a screenshot every GLYPHH_OS_SHOTS_S seconds (watching a long run)
+    if (process.env.GLYPHH_OS_SHOTS) {
+      mkdirSync(process.env.GLYPHH_OS_SHOTS, { recursive: true });
+      let n = 0;
+      setInterval(async () => { if (win && !win.isDestroyed()) writeFileSync(path.join(process.env.GLYPHH_OS_SHOTS, `shot-${String(++n).padStart(3, "0")}.png`), (await win.webContents.capturePage()).toPNG()); }, Number(process.env.GLYPHH_OS_SHOTS_S || 60) * 1000);
+    }
     setTimeout(async () => {
       writeFileSync(process.env.GLYPHH_OS_SMOKE, (await win.webContents.capturePage()).toPNG());
+      await win.webContents.executeJavaScript("window.__saveRecording?.()").catch(() => {});
       app.quit();
     }, Number(process.env.GLYPHH_OS_SMOKE_MS || 9000));
   }

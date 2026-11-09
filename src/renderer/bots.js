@@ -74,10 +74,12 @@ export async function initBots(c) {
     changed();
   });
   os.swarm.onEvent((e) => {
-    if (e.type === "state") swarm = e.swarm;
+    if (e.type === "state") { swarm = e.swarm; tapeForSwarm(); }
     if (e.type === "msg" && swarm) { swarm.stream.push(e.msg); speakMsg(e.msg); }
     changed();
   });
+  tapeForSwarm();
+  window.__saveRecording = saveTape;
   return {
     openBot,
     onWho: (who) => { talking.clear(); if (who) talking.add(who); changed(); },
@@ -90,6 +92,25 @@ export async function initBots(c) {
 function openBot(id, area) {
   const where = ctx.whereIs("bots")?.area || "left";
   return ctx.open("bot-" + id, area || (where.startsWith("left") ? "right" : "left"));
+}
+
+// ── recording: every swarm's conversation is taped, saved next to its repo when it ends ──
+let recordOn = (() => { try { return localStorage.getItem("glyphh-os-swarm-record") !== "off"; } catch { return true; } })();
+let tapeName = null;
+function tapeForSwarm() {
+  if (swarm?.status === "running" && recordOn && !ctx.voice.taping) { tapeName = swarm.id; ctx.voice.startTape(); changed(); }
+  else if (swarm?.status !== "running" && ctx.voice.taping) saveTape();
+}
+async function saveTape() {
+  if (!ctx.voice.taping) return null;
+  // let the last lines finish (up to a minute) before cutting the tape
+  for (let i = 0; i < 120 && ctx.voice.speaking; i++) await new Promise((r) => setTimeout(r, 500));
+  const bytes = await ctx.voice.stopTape();
+  changed();
+  if (!bytes) return null;
+  const file = await os.recording.save(tapeName || "swarm", bytes);
+  ctx.toast("Recording saved: " + file.split("/").slice(-2).join("/"));
+  return file;
 }
 
 // ── speaking ──────────────────────────────────────────────────────────
@@ -273,10 +294,18 @@ function mountSwarm(el) {
       const voicesB = h("button", { class: "tb" + (swarmVoices ? " on" : ""), title: "Each bot speaks in its own voice, one at a time", onclick: () => { swarmVoices = !swarmVoices; try { localStorage.setItem("glyphh-os-swarm-voices", swarmVoices ? "on" : "off"); } catch { /* */ } voicesB.classList.toggle("on", swarmVoices); if (!swarmVoices) ctx.voice.stopSpeaking(); } }, "🔊 voices");
       const pause = h("button", { class: "tb", onclick: async () => { ctx.toast(swarm.autopilot === false ? await os.swarm.resume() : await os.swarm.stop()); } });
       const finish = h("button", { class: "tb primary", onclick: async () => { try { ctx.toast(await os.swarm.finish({ into: "pr" })); } catch (e) { ctx.toast(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""), true); } } }, "Finish → PR");
-      top.append(h("div", { class: "swarm-goal" }, h("b", {}, swarm.goal), h("small", {}, `${swarm.repo.split("/").pop()} · ${swarm.main}`)), voicesB, pause, finish);
-      top._pause = pause;
+      const rec = h("button", { class: "tb rec", title: "Record the team's voices; saved next to the repo when the swarm ends", onclick: async () => {
+        recordOn = !ctx.voice.taping;
+        try { localStorage.setItem("glyphh-os-swarm-record", recordOn ? "on" : "off"); } catch { /* */ }
+        if (recordOn) tapeForSwarm(); else await saveTape();
+        changed();
+      } });
+      top.append(h("div", { class: "swarm-goal" }, h("b", {}, swarm.goal), h("small", {}, `${swarm.repo.split("/").pop()} · ${swarm.main}`)), rec, voicesB, pause, finish);
+      top._pause = pause; top._rec = rec;
     }
     top._pause.textContent = swarm.autopilot === false ? "▶ resume" : "■ stop";
+    top._rec.textContent = ctx.voice.taping ? "● rec" : "○ rec";
+    top._rec.classList.toggle("on", ctx.voice.taping);
     team.innerHTML = "";
     for (const m of swarm.bots) {
       const b = botById(m.id); if (!b) continue;
