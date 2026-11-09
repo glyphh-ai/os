@@ -257,9 +257,12 @@ function mountSwarm(el) {
       try { await os.swarm.start({ goal: goal.value.trim(), repo: repo.value.trim(), bots: ids }); ctx.open("plan", "right"); os.agent.send(`[swarm, from the user] The swarm "${goal.value.trim()}" has started. Make the plan and assign the first tasks.`); }
       catch (e) { ctx.toast(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""), true); go.disabled = false; go.textContent = "Start swarm"; }
     } }, "Start swarm");
+    const reqs = (r) => h("div", { class: "reqs" }, ok(r.gh, `GitHub connected to Claude through gh (${r.ghUser || "signed in"})`, "GitHub: run gh auth login in the terminal"), ok(!!r.repo, r.github ? `${r.repo.split("/").pop()} is a GitHub repo` : "a git repo (no GitHub remote: the pull request step needs one)", "the repo folder below isn't a git repo"));
+    let reqBox = reqs(req);
+    repo.addEventListener("change", async () => { const r = await os.swarm.check(repo.value.trim()); const n = reqs(r); reqBox.replaceWith(n); reqBox = n; });
     top.append(h("div", { class: "form swarm-start" },
       h("div", { class: "hint" }, "A swarm is a team of your bots on one goal. Everything goes through git: each bot works on its own branch, Glyphh merges, and it ends as a pull request."),
-      h("div", { class: "reqs" }, ok(req.gh, `GitHub: ${req.ghUser || "signed in"}`, "GitHub: run gh auth login"), ok(req.claudeGithub, "GitHub connected to Claude", "Connect GitHub at claude.ai → Settings → Connectors"), ok(!!req.repo, req.github ? "a GitHub repo" : "a git repo", "not a git repo")),
+      reqBox,
       h("label", {}, "Goal", goal), h("label", {}, "Repo", repo), h("label", {}, "Team"), picks, h("div", { class: "actions" }, go)));
     if (swarm?.status === "done") top.append(h("div", { class: "hint" }, `Last swarm: ${swarm.goal} — ${swarm.result || "finished"}`));
   }

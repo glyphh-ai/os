@@ -149,7 +149,10 @@ Use swarm_post to tell the team something while you work, swarm_ask to ask anoth
     }
     let servers = this.main.servers || [];
     try { servers = await this.main.connections(); } catch { /* not started */ }
-    out.claudeGithub = servers.some((s) => /github/i.test(s.name) && s.status === "connected");
+    // claude.ai has no GitHub connector to add; Claude Code reaches GitHub through the gh login,
+    // so gh signed in is GitHub connected to Claude (a GitHub MCP server, if there is one, counts too)
+    out.githubMcp = servers.some((s) => /github/i.test(s.name) && s.status === "connected");
+    out.claudeGithub = out.gh || out.githubMcp;
     return out;
   }
 
@@ -157,8 +160,7 @@ Use swarm_post to tell the team something while you work, swarm_ask to ask anoth
     if (this.swarm?.status === "running") throw new Error(`a swarm is running already ("${this.swarm.goal}"): finish or stop it first`);
     const req = await this.requirements(repo || getSettings().cwd);
     if (!req.repo) throw new Error(`${repo || getSettings().cwd} isn't a git repository: swarms work in git`);
-    if (!req.gh) throw new Error("Sign in to GitHub first: run `gh auth login` in the terminal");
-    if (!req.claudeGithub) throw new Error("Connect GitHub to Claude first: claude.ai → Settings → Connectors → GitHub, then try again");
+    if (!req.gh) throw new Error("Sign in to GitHub first: run `gh auth login` in the terminal (that is how Claude reaches GitHub)");
     const members = (bots?.length ? bots : this.list.map((b) => b.id)).map((id) => this.bot(id));
     const slug = slugify(goal).slice(0, 24) + "-" + Date.now().toString(36).slice(-4);
     const root = req.repo, base = await git(root, ["rev-parse", "--abbrev-ref", "HEAD"]);
