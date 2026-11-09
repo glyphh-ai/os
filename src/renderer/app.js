@@ -47,6 +47,9 @@ const BUILTIN_LAYOUTS = {
 };
 let savedLayouts = (await os.store.get("layouts")) || {};
 const allLayouts = () => ({ ...BUILTIN_LAYOUTS, ...savedLayouts });
+// shapes: the empty grids a new layout starts from; saved: layouts with their apps, ready to open
+const SHAPES = Object.fromEntries(Object.entries(BUILTIN_LAYOUTS).filter(([, l]) => !l.cells.some((c) => c.app)));
+const savedLayoutsList = () => Object.fromEntries(Object.entries(allLayouts()).filter(([, l]) => l.cells.some((c) => c.app)));
 
 // ── state ─────────────────────────────────────────────────────────────
 const DEFAULT_LAYOUT = {
@@ -489,7 +492,13 @@ function applyLayout(next) {
 
 function dip(name, saveIt) {
   name = (name || "").trim().toLowerCase();
-  if (!name || name === "list") return "dips: " + Object.keys(dips).join(", ");
+  if (!name || name === "list") return `dips: ${Object.keys(dips).join(", ") || "none"} · layouts: ${Object.values(savedLayoutsList()).map((l) => l.name).join(", ")}`;
+  // not a saved dip: a layout by name opens as a center slide, an app by name opens where it belongs
+  if (!saveIt && !dips[name]) {
+    const lay = Object.entries(allLayouts()).find(([k, l]) => k === slugify(name) || l.name.toLowerCase() === name);
+    if (lay) return layoutFromArgs({ name: lay[0] });
+    try { const { id } = resolveApp(name); return isOpen(id) ? focusApp(id) : openApp(id); } catch { /* none */ }
+  }
   if (saveIt) {
     for (const [id, i] of inst) { try { if (i.api?.url) L.urls[id] = i.api.url(); } catch { /* gone */ } }
     dips[name] = structuredClone({ areas: L.areas, center: L.center, rails: L.rails, urls: L.urls });
@@ -736,7 +745,7 @@ function localCommand(t) {
   if (!m) return null;
   const [, cmd, rest] = m; const a = rest.trim().split(/\s+/).filter(Boolean);
   switch (cmd.toLowerCase()) {
-    case "dip": return a[0] === "save" ? dip(a[1] || "mine", true) : a[0] === "delete" ? (delete dips[a[1]], os.dips.set(dips), `deleted ${a[1]}`) : dip(a[0] || "list");
+    case "dip": return a[0] === "save" ? dip(a[1] || "mine", true) : a[0] === "delete" ? (delete dips[a[1]], os.dips.set(dips), `deleted ${a[1]}`) : dip(a.join(" ") || "list");
     case "open": return openApp(a[0], areaArg(a.slice(1)), a.slice(1).find((x) => /^https?:|\./.test(x)));
     case "close": return closeApp(resolveApp(a[0]).id);
     case "move": return moveApp(a[0], a[1]);
@@ -874,7 +883,12 @@ function openLauncher(opts = {}) {
 }
 $("#btn-apps").onclick = () => openLauncher();
 $$("#launcher .seg button").forEach((b) => (b.onclick = () => { LS.tab = b.dataset.tab; LS.page = 0; LS.view = "grid"; drawLauncher(); }));
-$("#launch-search").addEventListener("input", () => { LS.page = 0; LS.view = "grid"; drawLauncher(); });
+$("#launch-add").onclick = () => {
+  if (LS.tab === "apps") { LS.view = "edit"; LS.edit = null; }
+  else { LS.view = "build"; LS.build = { key: null, isNew: true, ...structuredClone(BUILTIN_LAYOUTS.split), name: "" }; }
+  drawLauncher();
+};
+$("#launch-search").addEventListener("input",() => { LS.page = 0; LS.view = "grid"; drawLauncher(); });
 $("#launch-search").addEventListener("keydown", (e) => {
   // Enter opens the first match
   if (e.key === "Enter") { e.preventDefault(); $("#launch-body .tile:not(.add)")?.click(); }
@@ -926,6 +940,8 @@ function miniGrid(l) {
 function drawLauncher() {
   $$("#launcher .seg button").forEach((b) => b.classList.toggle("on", b.dataset.tab === LS.tab));
   $("#launch-search").placeholder = searchPlaceholder();
+  $("#launch-add").textContent = LS.tab === "apps" ? "+ App" : "+ Layout";
+  $("#launch-add").hidden = LS.view !== "grid";
   const body = $("#launch-body"); body.innerHTML = "";
   if (LS.view === "edit") return body.append(appForm());
   if (LS.view === "build") return body.append(layoutBuilder());
@@ -943,18 +959,25 @@ function drawLauncher() {
       t.ondragstart = (e) => dragOut(e, "text/os-app", id);
       if (d.custom) { const e = document.createElement("span"); e.className = "edit"; e.textContent = "✎"; e.title = "Edit"; e.onclick = (ev) => { ev.stopPropagation(); LS.view = "edit"; LS.edit = customApps.find((a) => a.id === id); drawLauncher(); }; t.append(e); }
       return t;
-    }, searchQ() ? null : { render: () => tile("+", "Add app", "name, url, icon", () => { LS.view = "edit"; LS.edit = null; drawLauncher(); }, "add") }));
+    }));
   } else {
-    const all = allLayouts();
+    // the layouts you can open: every one with its apps filled in (yours and the ready-made ones)
+    const all = savedLayoutsList();
     const keys = Object.keys(all).filter((k) => matches(all[k].name, k, ...all[k].cells.map((c) => c.app && APPS[c.app]?.title)));
-    if (!keys.length && searchQ()) return body.append(none("layouts"));
+    if (!keys.length) return body.append(none(searchQ() ? "layouts" : "saved layouts"));
     body.append(paged(keys, (key) => {
       const l = all[key];
-      const t = tile("", l.name, l.cells.some((c) => c.app) ? l.cells.map((c) => c.app).filter(Boolean).join(" · ") : `${l.cols}×${l.rows}`, () => { LS.view = "build"; LS.build = { key, ...structuredClone(l) }; drawLauncher(); });
-      t.draggable = true; t.title = "Click to edit, or drag it between the panels to open it";
+      const t = tile("", l.name, l.cells.map((c) => c.app && (APPS[c.app]?.title || c.app)).filter(Boolean).join(" · "), () => {
+        $("#launcher").hidden = true;
+        try { layoutFromArgs({ name: key }); } catch (e) { toast(e.message, true); }
+      });
+      t.draggable = true; t.title = "Click to open, or drag it between the panels";
       t.ondragstart = (e) => dragOut(e, "text/os-layout", key);
       t.querySelector("span").replaceWith(miniGrid(l));
-      if (savedLayouts[key]) { const e = document.createElement("span"); e.className = "edit"; e.textContent = "✕"; e.title = "Delete"; e.onclick = (ev) => { ev.stopPropagation(); delete savedLayouts[key]; os.store.set("layouts", savedLayouts); drawLauncher(); }; t.append(e); }
+      const ed = document.createElement("span"); ed.className = "edit"; ed.textContent = "✎"; ed.title = "Edit";
+      ed.onclick = (ev) => { ev.stopPropagation(); LS.view = "build"; LS.build = { key, isNew: false, ...structuredClone(l) }; drawLauncher(); };
+      t.append(ed);
+      if (savedLayouts[key]) { const e = document.createElement("span"); e.className = "edit del"; e.textContent = "✕"; e.title = "Delete"; e.onclick = (ev) => { ev.stopPropagation(); delete savedLayouts[key]; os.store.set("layouts", savedLayouts); drawLauncher(); }; t.append(e); }
       return t;
     }));
   }
@@ -1000,11 +1023,30 @@ function appForm() {
 function layoutBuilder() {
   const l = LS.build;
   const f = document.createElement("div"); f.className = "form";
-  const [ln, name] = field("Name", l.key in BUILTIN_LAYOUTS ? l.name : l.name, "My layout");
+  const [ln, name] = field("Name", l.name, "My layout");
+  name.addEventListener("input", () => (l.name = name.value));
+  // a new layout starts by picking its shape; the apps chosen so far carry over by slot
+  let shapes = null;
+  if (l.isNew) {
+    shapes = document.createElement("div"); shapes.className = "shapes";
+    for (const [k, s] of Object.entries(SHAPES)) {
+      const on = s.cols === l.cols && s.rows === l.rows && String(s.colWidths || "") === String(l.colWidths || "") && s.cells.length === l.cells.length && s.cells.every((c, i) => c.col === l.cells[i].col && c.row === l.cells[i].row && (c.rowSpan || 1) === (l.cells[i].rowSpan || 1));
+      const b = document.createElement("div"); b.className = "shape" + (on ? " on" : "");
+      b.append(miniGrid(s), Object.assign(document.createElement("span"), { textContent: s.name }));
+      b.onclick = () => {
+        const apps = l.cells.map((c) => c.app);
+        Object.assign(l, structuredClone(s), { name: l.name, key: null, isNew: true, rowHeights: undefined });
+        l.cells.forEach((c, i) => (c.app = apps[i] || null));
+        drawLauncher();
+      };
+      shapes.append(b);
+    }
+  }
   const g = document.createElement("div"); g.className = "builder";
   g.style.gridTemplateColumns = (l.colWidths || Array(l.cols).fill(1)).map((w) => w + "fr").join(" ");
   g.style.gridTemplateRows = `repeat(${l.rows}, 1fr)`;
-  const ids = Object.keys(APPS).filter((k) => !APPS[k].adhoc);
+  g.style.gridTemplateRows = (l.rowHeights || Array(l.rows).fill(1)).map((w) => w + "fr").join(" ");
+  const ids = Object.keys(APPS).filter((k) => !APPS[k].adhoc && !APPS[k].hidden);
   l.cells.forEach((c) => {
     const b = document.createElement("div"); b.className = "bcell";
     b.style.gridColumn = `${c.col + 1} / span ${c.colSpan || 1}`; b.style.gridRow = `${c.row + 1} / span ${c.rowSpan || 1}`;
@@ -1015,16 +1057,25 @@ function layoutBuilder() {
   });
   const actions = document.createElement("div"); actions.className = "actions";
   const back = btn("Back", "", () => { LS.view = "grid"; drawLauncher(); }); back.className = "ghost";
-  const saveB = btn("Save layout", "", () => {
-    const key = slugify(name.value || "layout");
-    if (key in BUILTIN_LAYOUTS && name.value === BUILTIN_LAYOUTS[key].name) return toast("Give it a new name to save your own", true);
-    savedLayouts[key] = { name: name.value || "Layout", cols: l.cols, rows: l.rows, colWidths: l.colWidths, rowHeights: l.rowHeights, cells: l.cells };
-    os.store.set("layouts", savedLayouts); toast(`Saved ${name.value}`);
-  }); saveB.className = "ghost";
-  const openB = btn("Open in center", "", () => { $("#launcher").hidden = true; openLayout({ ...l, name: name.value || l.name }); }); openB.className = "primary";
+  const store = () => {
+    const nm = name.value.trim();
+    if (!nm) { toast("Give the layout a name", true); return null; }
+    if (!l.cells.some((c) => c.app)) { toast("Put at least one app in it", true); return null; }
+    const key = slugify(nm);
+    if (key in BUILTIN_LAYOUTS && l.key !== key) { toast(`"${nm}" is a built-in layout; pick another name`, true); return null; }
+    // renaming one of yours replaces it
+    if (l.key && l.key !== key && savedLayouts[l.key]) delete savedLayouts[l.key];
+    savedLayouts[key] = { name: nm, cols: l.cols, rows: l.rows, colWidths: l.colWidths, rowHeights: l.rowHeights, cells: l.cells.map((c) => ({ ...c })) };
+    os.store.set("layouts", savedLayouts);
+    return key;
+  };
+  const saveB = btn("Save", "", () => { const key = store(); if (!key) return; toast(`Saved ${savedLayouts[key].name}`); LS.view = "grid"; drawLauncher(); }); saveB.className = "ghost";
+  const openB = btn("Save & open", "", () => { const key = store(); if (!key) return; $("#launcher").hidden = true; layoutFromArgs({ name: key }); }); openB.className = "primary";
   actions.append(back, saveB, openB);
   $(".pager").style.visibility = "hidden";
-  f.append(ln, g, actions);
+  const hint = document.createElement("div"); hint.className = "hint";
+  hint.textContent = l.isNew ? "Pick a shape, put an app in each slot, name it." : "Change its apps or its name.";
+  f.append(hint, ln, ...(shapes ? [shapes] : []), g, actions);
   return f;
 }
 
