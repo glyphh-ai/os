@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("os", {
   agent: {
     send: inv("agent:send"), interrupt: inv("agent:interrupt"), newChat: inv("agent:new"),
     models: inv("agent:models"), connections: inv("agent:connections"), busy: inv("agent:busy"),
+    sessions: inv("agent:sessions"), resume: inv("agent:resume"), session: inv("agent:session"),
+    pickFolder: inv("os:pick-folder"),
     onEvent: on("agent:event"),
     onPermission: on("agent:permission"),
     answerPermission: (id, ok) => ipcRenderer.send("perm:" + id, ok),

@@ -4,7 +4,7 @@
 // calendar, …) the CLI has. The OS hands it a tool server of its own, "os",
 // for driving the UI: open/close/move apps, swipe the carousel, drive any web
 // app, run lines in the terminal, open files, load .dip workspaces.
-import { query, tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
+import { query, tool, createSdkMcpServer, listSessions, getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { z } from "zod";
@@ -205,6 +205,31 @@ export class Agent {
   }
 
   newChat() { this.sessionId = null; this.restart(); }
+
+  /** Pick up a past session: the next turn resumes it. Returns its conversation as plain text turns. */
+  async resume(id) {
+    const msgs = await getSessionMessages(id);
+    this.sessionId = id; this.restart();
+    const out = [];
+    for (const m of msgs) {
+      if (m.type !== "user" && m.type !== "assistant") continue;
+      const c = m.message?.content;
+      const t = typeof c === "string" ? c : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text).join("\n") : "";
+      // skip tool results, system reminders and the swarm's own plumbing
+      if (!t.trim() || /^<(system-reminder|command|local-command)/.test(t.trim())) continue;
+      out.push({ role: m.type, text: t.trim() });
+    }
+    return out;
+  }
+}
+
+/** Past Glyphh sessions in a folder, newest first. */
+export async function sessions(dir) {
+  const list = await listSessions({ dir, limit: 60 }).catch(() => []);
+  return list
+    .filter((s) => s.firstPrompt || s.summary)
+    .sort((a, b) => b.lastModified - a.lastModified)
+    .map((s) => ({ id: s.sessionId, title: (s.customTitle || s.summary || s.firstPrompt || "Untitled").replace(/\s+/g, " ").slice(0, 120), at: s.lastModified, branch: s.gitBranch || "" }));
 }
 
 /** One read-only question to the user's connectors (email, calendar), answered as JSON. */

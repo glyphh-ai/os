@@ -140,7 +140,31 @@ function ctxFor(id) {
     openFile: (p) => openFile(p),
     changed: save,
     connections: setConnDots,
+    resume: resumeSession,
   };
+}
+
+// ── sessions: pick a past one back up; the OS's folder ────────────────
+async function resumeSession(id, title) {
+  try {
+    const turns = await os.agent.resume(id);
+    log.innerHTML = "";
+    for (const t of turns.slice(-40)) addMsg(t.role === "user" ? "user" : "bot", t.text);
+    caption(""); toast("Back in: " + (title || "session").slice(0, 60));
+  } catch (e) { toast(e.message, true); }
+}
+function showFolder() {
+  const b = $("#btn-folder"); if (!b) return;
+  b.textContent = "▸ " + (settings.cwd.split("/").pop() || settings.cwd);
+  b.title = `Glyphh OS works in ${settings.cwd} (click to change)`;
+}
+async function pickFolder() {
+  const next = await os.agent.pickFolder();
+  if (!next) return;
+  settings = next; showFolder();
+  // everything that works in a folder follows: files, git, terminal, recents
+  for (const id of ["files", "git", "terminal", "recents"]) inst.get(id)?.api?.setRoot?.(settings.cwd);
+  log.innerHTML = ""; toast("Working in " + settings.cwd);
 }
 
 function instance(id) {
@@ -613,7 +637,9 @@ function stopAgent() {
   os.agent.interrupt().then(() => { if (!busy) setStatus("ok", "stopped"); });
   addMsg("tool", "stopped");
 }
-$("#btn-new").onclick = () => { os.agent.newChat(); log.innerHTML = ""; caption(""); toast("New conversation"); };
+$("#btn-folder").onclick = pickFolder; showFolder();
+$("#btn-recents").onclick = () => (isOpen("recents") ? focusApp("recents") : openApp("recents", "left"));
+$("#btn-new").onclick =() => { os.agent.newChat(); log.innerHTML = ""; caption(""); toast("New conversation"); };
 function setComposer(open) { L.composer.open = open; render(); if (open) setTimeout(() => input.focus(), 50); }
 $("#btn-close-composer").onclick = () => setComposer(false);
 $("#glyphh-pill").onclick = (e) => (e.target.id === "pill-stop" ? stopAgent() : setComposer(true));
@@ -983,8 +1009,10 @@ $("#btn-settings").onclick = openSettings;
 $("#set-save").onclick = async () => {
   const patch = { model: $("#set-model").value, effort: $("#set-effort").value, permissionMode: $("#set-perm").value, cwd: $("#set-cwd").value.trim(), claudePath: $("#set-claude-path").value.trim(), voiceId: $("#set-voice").value, ttsModel: $("#set-tts").value, vadThreshold: Number($("#set-vad").value) };
   const k = $("#set-eleven").value.trim(); if (k) patch.elevenKey = k;
+  const cwdBefore = settings.cwd;
   settings = await os.settings.set(patch);
   voice.setThreshold(settings.vadThreshold);
+  if (settings.cwd !== cwdBefore) { showFolder(); for (const id of ["files", "git", "terminal", "recents"]) inst.get(id)?.api?.setRoot?.(settings.cwd); }
   $("#sel-model").value = settings.model; $("#sel-effort").value = settings.effort;
   $("#settings").hidden = true; toast("Settings saved");
 };

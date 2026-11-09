@@ -26,6 +26,7 @@ export const APPS = {
   email:       { title: "Email", icon: "✉", group: "work", mount: (el, c) => mountConnector(el, c, "email") },
   calendar:    { title: "Calendar", icon: "📅", group: "work", mount: (el, c) => mountConnector(el, c, "calendar") },
   connections: { title: "Connections", icon: "⛓", group: "work", mount: mountConnections },
+  recents:     { title: "Recents", icon: "↺", group: "dev", mount: mountRecents, area: "left" },
   slack:       { title: "Slack", group: "social", web: "https://app.slack.com/client", iconSite: "https://slack.com", brief: "my unread Slack messages and mentions" },
   x:           { title: "X", group: "social", web: "https://x.com/i/account_analytics", iconSite: "https://x.com", brief: "my X account analytics: impressions, engagement, followers and top posts" },
   instagram:   { title: "Instagram", group: "social", web: "https://www.instagram.com/accounts/insights/", iconSite: "https://www.instagram.com", brief: "my Instagram insights: reach, engagement, followers and top posts" },
@@ -49,6 +50,7 @@ const P = {
   calendar: "M5 5h14a1.5 1.5 0 0 1 1.5 1.5v12A1.5 1.5 0 0 1 19 20H5a1.5 1.5 0 0 1-1.5-1.5v-12A1.5 1.5 0 0 1 5 5zM3.5 10h17M8 3v4M16 3v4",
   connections: "M10 14a4 4 0 0 0 5.7 0l3-3A4 4 0 0 0 13 5.3l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1",
   layout: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+  recents: "M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4v4.5H8M12 7.5V12l3 2",
 };
 const svg = (d) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
 
@@ -253,7 +255,7 @@ function mountTerminal(el, ctx) {
   term.onData((d) => os.term.write(id, d));
   const offData = os.term.onData((tid, d) => tid === id && term.write(d));
   const offExit = os.term.onExit((tid) => tid === id && term.write("\r\n\x1b[35m[process exited — reopen the terminal]\x1b[0m\r\n"));
-  return { termId: id, focus: () => term.focus(), layout: refit, unmount: () => { offData(); offExit(); os.term.kill(id); term.dispose(); } };
+  return { termId: id, focus: () => term.focus(), layout: refit, setRoot: (r) => os.term.write(id, `cd ${JSON.stringify(r)}\r`), unmount: () => { offData(); offExit(); os.term.kill(id); term.dispose(); } };
 }
 
 // ── git ───────────────────────────────────────────────────────────────
@@ -292,7 +294,7 @@ function mountGit(el, ctx) {
     h("button", { class: "tb", onclick: () => ctx.ask("Look at the uncommitted changes in " + cwd + " and write me a commit message.") }, "✦ message")), body, diff);
   render();
   const timer = setInterval(() => el.classList.contains("active") && document.hasFocus() && render(), 15000);
-  return { refresh: render, unmount: () => clearInterval(timer) };
+  return { refresh: render, setRoot: (r) => { cwd = where.value = r; render(); }, unmount: () => clearInterval(timer) };
 }
 
 // ── email + calendar from the user's Claude connectors ────────────────
@@ -334,6 +336,30 @@ function mountConnector(el, ctx, kind) {
 }
 const fmtDate = (s) => { const d = new Date(s); if (isNaN(d)) return ""; return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleDateString([], { month: "short", day: "numeric" }); };
 const fmtTime = (s) => { const d = new Date(s); return isNaN(d) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
+
+// ── recents: Glyphh's past sessions in the OS's folder; click one to pick it back up ──
+function mountRecents(el, ctx) {
+  const search = h("input", { placeholder: "Search sessions", spellcheck: "false" });
+  const body = h("div", { class: "scroll" });
+  let list = [], current = null, root = ctx.cwd;
+  const ago = (t) => { const s = (Date.now() - t) / 1000; return s < 3600 ? `${Math.max(1, Math.round(s / 60))}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`; };
+  function draw() {
+    body.innerHTML = "";
+    const q = search.value.trim().toLowerCase();
+    const shown = list.filter((s) => !q || s.title.toLowerCase().includes(q));
+    if (!shown.length) { body.append(h("div", { class: "empty-note" }, list.length ? "No sessions match." : `No sessions yet in ${root.split("/").pop()}.`)); return; }
+    for (const s of shown) body.append(h("div", { class: "recent" + (s.id === current ? " on" : ""), title: s.title, onclick: async () => { current = s.id; draw(); await ctx.resume(s.id, s.title); } },
+      h("span", { class: "t" }, s.title), h("span", { class: "m" }, (s.branch && s.branch !== "HEAD" ? "⎇ " + s.branch + " · " : "") + ago(s.at))));
+  }
+  async function load() {
+    [list, current] = await Promise.all([os.agent.sessions().catch(() => []), os.agent.session().catch(() => null)]);
+    draw();
+  }
+  search.addEventListener("input", draw);
+  el.append(h("div", { class: "toolbar" }, search, h("button", { class: "tb", title: "Refresh", onclick: load }, "↻")), body);
+  load();
+  return { refresh: load, setRoot: (r) => { root = r; load(); } };
+}
 
 // ── connections: what the user's Claude can reach ────────────────────
 function mountConnections(el, ctx) {

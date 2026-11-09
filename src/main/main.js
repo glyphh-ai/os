@@ -1,11 +1,11 @@
 // Glyphh OS — main process.
-import { app, BrowserWindow, ipcMain, session, systemPreferences, shell, webContents } from "electron";
+import { app, BrowserWindow, ipcMain, session, systemPreferences, shell, webContents, dialog } from "electron";
 import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { Agent, askConnectors, osServer } from "./agent.js";
+import { Agent, askConnectors, osServer, sessions } from "./agent.js";
 import { BotHub } from "./bots.js";
 import * as rpa from "./rpa.js";
 import * as sys from "./system.js";
@@ -78,6 +78,17 @@ handle("settings:set", (patch) => {
 handle("agent:send", (t) => agent.send(t));
 handle("agent:interrupt", () => agent.interrupt());
 handle("agent:new", () => agent.newChat());
+handle("agent:sessions", () => sessions(getSettings().cwd));
+handle("agent:resume", (id) => agent.resume(id));
+handle("agent:session", () => agent.sessionId);
+// the OS's folder: Glyphh, the files, git and terminal all work here
+handle("os:pick-folder", async () => {
+  const r = await dialog.showOpenDialog(win, { title: "Choose the folder Glyphh OS works in", defaultPath: getSettings().cwd, properties: ["openDirectory", "createDirectory"] });
+  if (r.canceled || !r.filePaths[0]) return null;
+  setSettings({ cwd: r.filePaths[0] });
+  agent.newChat();
+  return getSettings();
+});
 handle("agent:models", () => agent.models);
 handle("agent:connections", () => agent.connections());
 handle("agent:busy", () => agent.busy);
