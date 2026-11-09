@@ -819,11 +819,8 @@ os.agent.onEvent((e) => {
   }
 });
 
-function setConnDots(list = []) {
-  const d = $("#conn-dots"); d.innerHTML = "";
-  for (const s of list.filter((s) => s.name !== "os")) { const i = document.createElement("i"); i.className = s.status; i.title = `${s.name}: ${s.status}`; d.append(i); }
-}
-$("#conn-dots").onclick = () => openApp("connections", "right");
+// connection status lives in the Connections app, not the top bar
+function setConnDots() {}
 
 // ── permission prompts ────────────────────────────────────────────────
 os.agent.onPermission(({ id, name, input: inp }) => {
