@@ -134,6 +134,8 @@ export class Agent {
       options.permissionMode = "bypassPermissions";
       options.allowDangerouslySkipPermissions = true;
     } else {
+      // accept edits: file edits go through, everything else still asks; plan: Claude plans, changes nothing
+      if (s.permissionMode === "acceptEdits" || s.permissionMode === "plan") options.permissionMode = s.permissionMode;
       options.canUseTool = async (name, input, { signal }) => {
         if (READ_ONLY.has(name) || name.startsWith("mcp__os__")) return { behavior: "allow", updatedInput: input };
         const ok = await this.askPermission(p.label ? `${p.label} · ${name}` : name, input, signal);

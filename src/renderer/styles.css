@@ -135,7 +135,9 @@ code, pre { font-family: var(--mono); }
 .send { width: 34px; height: 34px; border-radius: 11px; border: 0; background: var(--accent); color: #fff; font-size: 17px; font-weight: 700; cursor: pointer; flex: none; box-shadow: 0 0 14px var(--accent-glow); }
 .send:hover { background: var(--accent-2); }
 #composer .topline { display: flex; align-items: center; gap: 6px; padding: 0 4px; }
-#composer .topline .spacer { flex: 1; }
+#composer .topline .spacer, #composer .bottomline .spacer { flex: 1; }
+#composer .bottomline { justify-content: flex-start; padding: 0 4px; }
+#sel-model { max-width: 150px; }
 .chips { display: flex; justify-content: center; align-items: center; gap: 6px; }
 .chips select, .chip { background: rgba(20, 12, 32, 0.7); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; font-size: 11px; color: var(--text-2); cursor: pointer; outline: 0; }
 #mic-level { width: 60px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }

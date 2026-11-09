@@ -1103,6 +1103,9 @@ fillVoices($("#sel-voice"), settings.voiceId);
 $("#sel-voice").onchange = async (e) => { settings = await os.settings.set({ voiceId: e.target.value }); toast("Voice: " + e.target.selectedOptions[0].text.replace(/ voice$/, "")); };
 $("#sel-model").onchange = async (e) => { settings = await os.settings.set({ model: e.target.value }); toast("Model: " + e.target.selectedOptions[0].text); };
 $("#sel-effort").onchange = async (e) => { settings = await os.settings.set({ effort: e.target.value }); toast("Effort: " + e.target.value); };
+// the permission mode: ask, accept edits, plan, or full auto (changing it restarts the session; the conversation carries over)
+$("#sel-perm").value = settings.permissionMode || "ask";
+$("#sel-perm").onchange = async (e) => { settings = await os.settings.set({ permissionMode: e.target.value }); toast("Permissions: " + e.target.selectedOptions[0].text); };
 
 async function openSettings() {
   settings = await os.settings.get();
@@ -1121,7 +1124,7 @@ $("#set-save").onclick = async () => {
   settings = await os.settings.set(patch);
   voice.setThreshold(settings.vadThreshold);
   if (settings.cwd !== cwdBefore) { showFolder(); for (const id of ["files", "git", "terminal", "recents"]) inst.get(id)?.api?.setRoot?.(settings.cwd); }
-  $("#sel-model").value = settings.model; $("#sel-effort").value = settings.effort;
+  $("#sel-model").value = settings.model; $("#sel-effort").value = settings.effort; $("#sel-perm").value = settings.permissionMode;
   $("#settings").hidden = true; toast("Settings saved");
 };
 $$("[data-close]").forEach((b) => (b.onclick = () => (b.closest(".modal").hidden = true)));
