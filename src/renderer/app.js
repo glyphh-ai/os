@@ -268,7 +268,7 @@ function renderLayoutSlide(slide, s) {
       box.innerHTML = `<div class="cell-head"><span class="n"></span><button title="Remove">✕</button></div><div class="cell-body"></div><div class="cell-empty"><button>+ Add an app</button></div>`;
       box.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/os-app")) { e.preventDefault(); box.classList.add("drop"); } });
       box.addEventListener("dragleave", () => box.classList.remove("drop"));
-      box.addEventListener("drop", (e) => { e.preventDefault(); e.stopPropagation(); box.classList.remove("drop"); const id = e.dataTransfer.getData("text/os-app"); if (id) moveApp(id, { slide: s.id, cell: Number(box.dataset.i) }); });
+      box.addEventListener("drop", (e) => { box.classList.remove("drop"); const id = e.dataTransfer.getData("text/os-app"); if (!id) return; e.preventDefault(); e.stopPropagation(); moveApp(id, { slide: s.id, cell: Number(box.dataset.i) }); });
       grid.append(box);
     }
     box.style.gridColumn = `${c.col + 1} / span ${c.colSpan || 1}`;
@@ -427,9 +427,17 @@ function dip(name, saveIt) {
 // ── drag between areas ────────────────────────────────────────────────
 for (const a of AREA_NAMES) {
   const el = a === "center" ? $(".area.center") : areaEl(a);
-  el.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/os-app")) { e.preventDefault(); el.classList.add("drop"); } });
+  // apps drop into any area; a layout dropped anywhere between the panels opens as a center slide
+  const takes = (e) => e.dataTransfer.types.includes("text/os-app") || e.dataTransfer.types.includes("text/os-layout");
+  el.addEventListener("dragover", (e) => { if (takes(e)) { e.preventDefault(); el.classList.add("drop"); } });
   el.addEventListener("dragleave", (e) => { if (!el.contains(e.relatedTarget)) el.classList.remove("drop"); });
-  el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("drop"); const id = e.dataTransfer.getData("text/os-app"); if (id) moveApp(id, a); });
+  el.addEventListener("drop", (e) => {
+    e.preventDefault(); el.classList.remove("drop");
+    const lay = e.dataTransfer.getData("text/os-layout");
+    if (lay) { try { layoutFromArgs({ name: lay }); } catch (err) { toast(err.message, true); } return; }
+    const id = e.dataTransfer.getData("text/os-app");
+    if (id) { try { moveApp(id, a); } catch (err) { toast(err.message, true); } }
+  });
 }
 document.addEventListener("dragstart", () => document.body.classList.add("dragging-tab"));
 document.addEventListener("dragend", () => { document.body.classList.remove("dragging-tab"); $$(".drop").forEach((x) => x.classList.remove("drop")); });
@@ -782,18 +790,33 @@ const PER_PAGE = 12;
 const LS = { tab: "apps", page: 0, to: null, view: "grid", edit: null, build: null };
 function openLauncher(opts = {}) {
   Object.assign(LS, { page: 0, view: "grid", edit: null, build: null, to: opts.to ?? null, tab: opts.tab || "apps" });
+  $("#launch-search").value = "";
   $("#launcher").hidden = false; drawLauncher();
+  setTimeout(() => $("#launch-search").focus(), 0);
 }
 $("#btn-apps").onclick = () => openLauncher();
 $$("#launcher .seg button").forEach((b) => (b.onclick = () => { LS.tab = b.dataset.tab; LS.page = 0; LS.view = "grid"; drawLauncher(); }));
+$("#launch-search").addEventListener("input", () => { LS.page = 0; LS.view = "grid"; drawLauncher(); });
+$("#launch-search").addEventListener("keydown", (e) => {
+  // Enter opens the first match
+  if (e.key === "Enter") { e.preventDefault(); $("#launch-body .tile:not(.add)")?.click(); }
+});
+const searchQ = () => $("#launch-search").value.trim().toLowerCase();
+const matches = (...texts) => { const q = searchQ(); return !q || texts.some((t) => String(t || "").toLowerCase().includes(q)); };
+// dragging a tile out of the launcher: the sheet steps aside so the panels can take the drop
+function dragOut(e, type, value) {
+  e.dataTransfer.setData(type, value); e.dataTransfer.effectAllowed = "copyMove";
+  setTimeout(() => ($("#launcher").hidden = true), 0);
+}
 $("#pg-prev").onclick = () => { LS.page--; drawLauncher(); };
 $("#pg-next").onclick = () => { LS.page++; drawLauncher(); };
 
-function targetLabel() {
+function searchPlaceholder() {
+  const what = LS.tab === "apps" ? "Search apps" : "Search layouts";
   const to = LS.to;
-  if (!to) return "Opens where it belongs";
-  if (typeof to === "object") return "Into the layout cell";
-  return { left: "Into the left rail", "left-bottom": "Into the bottom left", right: "Into the right rail", "right-bottom": "Into the bottom right", center: "Into the center" }[to];
+  if (!to) return what;
+  if (typeof to === "object") return what + " for this cell";
+  return what + " · " + { left: "left rail", "left-bottom": "bottom left", right: "right rail", "right-bottom": "bottom right", center: "center" }[to];
 }
 
 function paged(items, render1, extra) {
@@ -824,26 +847,34 @@ function miniGrid(l) {
 
 function drawLauncher() {
   $$("#launcher .seg button").forEach((b) => b.classList.toggle("on", b.dataset.tab === LS.tab));
-  $("#launch-target").textContent = targetLabel();
+  $("#launch-search").placeholder = searchPlaceholder();
   const body = $("#launch-body"); body.innerHTML = "";
   if (LS.view === "edit") return body.append(appForm());
   if (LS.view === "build") return body.append(layoutBuilder());
+  const none = (what) => { const n = document.createElement("div"); n.className = "launch-empty"; n.textContent = `No ${what} match “${searchQ()}”`; return n; };
   if (LS.tab === "apps") {
-    const ids = Object.keys(APPS).filter((k) => !APPS[k].adhoc && !APPS[k].hidden);
+    const ids = Object.keys(APPS).filter((k) => !APPS[k].adhoc && !APPS[k].hidden && matches(APPS[k].title, k, APPS[k].web));
+    if (!ids.length && searchQ()) return body.append(none("apps"));
     body.append(paged(ids, (id) => {
       const d = APPS[id];
       const t = tile(iconHTML(id), d.title, isOpen(id) ? "open" : d.custom ? new URL(d.web).hostname : "", () => {
         $("#launcher").hidden = true;
         try { isOpen(id) && !LS.to ? focusApp(id) : openApp(id, LS.to || undefined); } catch (e) { toast(e.message, true); }
       });
+      t.draggable = true; t.title = "Click to open, or drag it into a panel";
+      t.ondragstart = (e) => dragOut(e, "text/os-app", id);
       if (d.custom) { const e = document.createElement("span"); e.className = "edit"; e.textContent = "✎"; e.title = "Edit"; e.onclick = (ev) => { ev.stopPropagation(); LS.view = "edit"; LS.edit = customApps.find((a) => a.id === id); drawLauncher(); }; t.append(e); }
       return t;
-    }, { render: () => tile("+", "Add app", "name, url, icon", () => { LS.view = "edit"; LS.edit = null; drawLauncher(); }, "add") }));
+    }, searchQ() ? null : { render: () => tile("+", "Add app", "name, url, icon", () => { LS.view = "edit"; LS.edit = null; drawLauncher(); }, "add") }));
   } else {
     const all = allLayouts();
-    body.append(paged(Object.keys(all), (key) => {
+    const keys = Object.keys(all).filter((k) => matches(all[k].name, k, ...all[k].cells.map((c) => c.app && APPS[c.app]?.title)));
+    if (!keys.length && searchQ()) return body.append(none("layouts"));
+    body.append(paged(keys, (key) => {
       const l = all[key];
       const t = tile("", l.name, l.cells.some((c) => c.app) ? l.cells.map((c) => c.app).filter(Boolean).join(" · ") : `${l.cols}×${l.rows}`, () => { LS.view = "build"; LS.build = { key, ...structuredClone(l) }; drawLauncher(); });
+      t.draggable = true; t.title = "Click to edit, or drag it between the panels to open it";
+      t.ondragstart = (e) => dragOut(e, "text/os-layout", key);
       t.querySelector("span").replaceWith(miniGrid(l));
       if (savedLayouts[key]) { const e = document.createElement("span"); e.className = "edit"; e.textContent = "✕"; e.title = "Delete"; e.onclick = (ev) => { ev.stopPropagation(); delete savedLayouts[key]; os.store.set("layouts", savedLayouts); drawLauncher(); }; t.append(e); }
       return t;

@@ -191,7 +191,10 @@ webview { flex: 1; width: 100%; background: #fff0; }
 .actions .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 #launcher .sheet { width: 640px; min-height: 470px; }
 .launch-head { display: flex; align-items: center; gap: 10px; }
-#launch-target { flex: 1; color: var(--text-3); font-size: 12px; }
+#launch-search { flex: 1; min-width: 0; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); border-radius: 9px; padding: 7px 11px; outline: 0; color: var(--text); font-size: 13px; }
+#launch-search:focus { border-color: var(--accent, #8b5cf6); }
+#launcher .tile[draggable="true"] { cursor: grab; }
+.launch-empty { padding: 40px 0; text-align: center; color: var(--text-3); }
 .seg { display: flex; padding: 3px; border-radius: 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); }
 .seg button { padding: 5px 14px; border-radius: 8px; border: 0; background: transparent; cursor: pointer; color: var(--text-3); }
 .seg button.on { background: var(--accent); color: #fff; }
