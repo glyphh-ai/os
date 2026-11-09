@@ -41,8 +41,9 @@ export async function fillVoices(sel, value) {
   sel.innerHTML = `<option value="${esc(value)}">voice…</option>`;
   const list = await voiceList();
   if (!list.length) { sel.innerHTML = `<option value="${esc(value)}">voice (add ElevenLabs key)</option>`; return; }
-  sel.innerHTML = list.map((v) => `<option value="${esc(v.id)}">${esc(v.name)} voice</option>`).join("");
-  if (!list.some((v) => v.id === value)) sel.insertAdjacentHTML("afterbegin", `<option value="${esc(value)}">custom voice</option>`);
+  // just the name ("Charlie - Deep, Confident, Energetic" → "Charlie"); the description stays as the tooltip
+  sel.innerHTML = list.map((v) => `<option value="${esc(v.id)}" title="${esc(v.name)}">${esc(v.name.split(/\s+-\s+/)[0])}</option>`).join("");
+  if (!list.some((v) => v.id === value)) sel.insertAdjacentHTML("afterbegin", `<option value="${esc(value)}">custom</option>`);
   sel.value = value;
 }
 
