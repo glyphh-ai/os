@@ -281,8 +281,10 @@ function renderLayoutSlide(slide, s) {
   let grid = slide.querySelector(":scope > .slide-grid");
   if (!grid) { slide.innerHTML = ""; grid = document.createElement("div"); grid.className = "slide-grid"; slide.append(grid); }
   const widths = s.colWidths?.length === s.cols ? s.colWidths : Array(s.cols).fill(1);
+  const heights = s.rowHeights?.length === s.rows ? s.rowHeights : Array(s.rows).fill(1);
   grid.style.gridTemplateColumns = widths.map((w) => w + "fr").join(" ");
-  grid.style.gridTemplateRows = `repeat(${s.rows}, 1fr)`;
+  grid.style.gridTemplateRows = heights.map((w) => w + "fr").join(" ");
+  gridSplitters(grid, s, widths, heights);
   const cells = $$(":scope > .cell", grid);
   for (const c of cells.slice(s.cells.length)) { for (const p of $$(".panel", c)) if (!isOpen(p.dataset.app)) p.remove(); c.remove(); }
   s.cells.forEach((c, i) => {
@@ -307,6 +309,56 @@ function renderLayoutSlide(slide, s) {
       const rec = attach(c.app, body); rec.el.classList.add("active");
     }
   });
+}
+
+// The borders between a layout's cells drag: a column border resizes the two columns beside it, a row border
+// the two rows. Sizes live on the slide (colWidths/rowHeights), so they're saved with the layout and its dips.
+// A handle sits only where cells really meet: a cell spanning two rows has no row border across it.
+const GAP = 6;
+function gridSplitters(grid, s, widths, heights) {
+  const key = `${s.cols}x${s.rows}:` + s.cells.map((c) => `${c.col},${c.row},${c.colSpan || 1},${c.rowSpan || 1}`).join(";");
+  const frac = (arr, i) => arr.slice(0, i + 1).reduce((a, b) => a + b, 0) / arr.reduce((a, b) => a + b, 0);
+  if (grid._key !== key) {
+    for (const h of $$(":scope > .gsplit", grid)) h.remove();
+    grid._key = key; grid._handles = [];
+    // a border between column i and i+1 within row r exists when some cell ends at column i there
+    const ends = (dir, i, at) => s.cells.some((c) => dir === "v"
+      ? c.col + (c.colSpan || 1) - 1 === i && at >= c.row && at < c.row + (c.rowSpan || 1)
+      : c.row + (c.rowSpan || 1) - 1 === i && at >= c.col && at < c.col + (c.colSpan || 1));
+    const starts = (dir, i, at) => s.cells.some((c) => dir === "v"
+      ? c.col === i + 1 && at >= c.row && at < c.row + (c.rowSpan || 1)
+      : c.row === i + 1 && at >= c.col && at < c.col + (c.colSpan || 1));
+    for (const [dir, n, m] of [["v", s.cols, s.rows], ["h", s.rows, s.cols]]) {
+      for (let i = 0; i < n - 1; i++) for (let at = 0; at < m; at++) {
+        if (!ends(dir, i, at) || !starts(dir, i, at)) continue;
+        const h = document.createElement("div"); h.className = "gsplit " + dir; h.dataset.i = i; h.dataset.at = at;
+        h.title = "Drag to resize · double-click to even out";
+        grid.append(h); grid._handles.push(h);
+        dragger(h, (ev) => {
+          const r = grid.getBoundingClientRect();
+          const arr = (dir === "v" ? s.colWidths : s.rowHeights)?.slice() || Array(n).fill(1);
+          const total = arr.reduce((a, b) => a + b, 0), pair = arr[i] + arr[i + 1];
+          const before = arr.slice(0, i).reduce((a, b) => a + b, 0);
+          const pos = dir === "v" ? (ev.clientX - r.left) / r.width : (ev.clientY - r.top) / r.height;
+          const want = Math.max(0.08 * total, Math.min(pair - 0.08 * total, pos * total - before));
+          arr[i] = +want.toFixed(4); arr[i + 1] = +(pair - want).toFixed(4);
+          if (dir === "v") s.colWidths = arr; else s.rowHeights = arr;
+          render();
+        });
+        h.addEventListener("dblclick", () => { if (dir === "v") s.colWidths = Array(n).fill(1); else s.rowHeights = Array(n).fill(1); render(); });
+      }
+    }
+  }
+  // place each handle on its border, spanning its one row (or column)
+  for (const h of grid._handles) {
+    const i = Number(h.dataset.i), at = Number(h.dataset.at), v = h.classList.contains("v");
+    const [along, n, across, m] = v ? [widths, s.cols, heights, s.rows] : [heights, s.rows, widths, s.cols];
+    const a0 = at === 0 ? 0 : frac(across, at - 1), a1 = frac(across, at);
+    const main = `calc((100% - ${(n - 1) * GAP}px) * ${frac(along, i)} + ${i * GAP + GAP / 2}px)`;
+    const s0 = `calc((100% - ${(m - 1) * GAP}px) * ${a0} + ${at * GAP}px)`;
+    const len = `calc((100% - ${(m - 1) * GAP}px) * ${a1 - a0})`;
+    Object.assign(h.style, v ? { left: main, top: s0, height: len, width: "", bottom: "" } : { top: main, left: s0, width: len, height: "", right: "" });
+  }
 }
 
 function btn(label, title, onclick) { const b = document.createElement("button"); b.textContent = label; b.title = title; b.onclick = onclick; return b; }
@@ -399,7 +451,7 @@ async function openFile(p, line) {
 
 /** Open a layout as a new center slide. Apps already open elsewhere move into it. */
 function openLayout(spec) {
-  const s = { id: newSlideId(), kind: "layout", name: spec.name || "Layout", cols: spec.cols, rows: spec.rows, colWidths: spec.colWidths, cells: spec.cells.map((c) => ({ ...c })) };
+  const s = { id: newSlideId(), kind: "layout", name: spec.name || "Layout", cols: spec.cols, rows: spec.rows, colWidths: spec.colWidths, rowHeights: spec.rowHeights, cells: spec.cells.map((c) => ({ ...c })) };
   for (const c of s.cells) {
     if (!c.app) continue;
     try { c.app = resolveApp(c.app).id; } catch { c.app = null; continue; }
@@ -966,7 +1018,7 @@ function layoutBuilder() {
   const saveB = btn("Save layout", "", () => {
     const key = slugify(name.value || "layout");
     if (key in BUILTIN_LAYOUTS && name.value === BUILTIN_LAYOUTS[key].name) return toast("Give it a new name to save your own", true);
-    savedLayouts[key] = { name: name.value || "Layout", cols: l.cols, rows: l.rows, colWidths: l.colWidths, cells: l.cells };
+    savedLayouts[key] = { name: name.value || "Layout", cols: l.cols, rows: l.rows, colWidths: l.colWidths, rowHeights: l.rowHeights, cells: l.cells };
     os.store.set("layouts", savedLayouts); toast(`Saved ${name.value}`);
   }); saveB.className = "ghost";
   const openB = btn("Open in center", "", () => { $("#launcher").hidden = true; openLayout({ ...l, name: name.value || l.name }); }); openB.className = "primary";

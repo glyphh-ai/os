@@ -93,7 +93,14 @@ code, pre { font-family: var(--mono); }
 #stage.composer-closed .slide { padding-bottom: 64px; }
 #stage.composer-closed .swipe-edge { bottom: 64px; }
 #stage.composer-closed #face-caption { bottom: 90px; }
-.slide-grid { flex: 1; margin: 0 4px; display: grid; gap: 6px; min-height: 0; }
+.slide-grid { position: relative; flex: 1; margin: 0 4px; display: grid; gap: 6px; min-height: 0; }
+.gsplit { position: absolute; z-index: 5; }
+.gsplit.v { width: 10px; transform: translateX(-50%); cursor: col-resize; }
+.gsplit.h { height: 10px; transform: translateY(-50%); cursor: row-resize; }
+.gsplit::after { content: ""; position: absolute; border-radius: 2px; background: transparent; transition: background 0.15s; }
+.gsplit.v::after { left: 4px; width: 2px; top: 20%; bottom: 20%; }
+.gsplit.h::after { top: 4px; height: 2px; left: 20%; right: 20%; }
+.gsplit:hover::after, .gsplit.drag::after { background: rgba(173, 93, 248, 0.8); }
 .cell { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-radius: var(--radius); background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(22px) saturate(140%); overflow: hidden; }
 .cell.drop { border-color: var(--accent); box-shadow: 0 0 20px var(--accent-glow); }
 .cell-head { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11.5px; color: var(--text-3); border-bottom: 1px solid var(--line); flex: none; cursor: grab; }
