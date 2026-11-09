@@ -5,37 +5,40 @@
 // utterance, ElevenLabs transcribes it, and it goes straight to the agent.
 const os = window.os;
 
-export function createVoice({ onMouth, onMic, onUtterance, onSpeaking, onError }) {
+export function createVoice({ onMouth, onMic, onUtterance, onSpeaking, onError, onWho }) {
   const ctx = new AudioContext();
   const out = ctx.createAnalyser(); out.fftSize = 512; out.connect(ctx.destination);
   const buf = new Uint8Array(out.fftSize);
 
   // ── speaking ────────────────────────────────────────────────────────
   const queue = []; // promises of AudioBuffers, in order
-  let playing = false, current = null, pending = "", speakingGen = 0;
+  let playing = false, current = null, pending = "", speakingGen = 0, speaker;
 
   const clean = (t) => t.replace(/```[\s\S]*?```/g, " ").replace(/`([^`]*)`/g, "$1").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/[*_#>|~]/g, "").replace(/https?:\/\/\S+/g, "a link").replace(/\s+/g, " ").trim();
 
-  function enqueue(sentence) {
+  // each item: the audio, fetched in the speaker's voice, and who speaks it (a bot's id; none for Glyphh)
+  function enqueue(sentence, voiceId, who) {
     const s = clean(sentence);
     if (!s || !/[a-z0-9]/i.test(s)) return;
     const gen = speakingGen;
-    queue.push(os.voice.speak(s).then((bytes) => ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)))
-      .catch((e) => { if (gen === speakingGen) onError?.(e.message); return null; }));
+    queue.push({ who, audio: os.voice.speak(s, voiceId).then((bytes) => ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)))
+      .catch((e) => { if (gen === speakingGen) onError?.(e.message); return null; }) });
     if (!playing) playNext();
   }
 
   async function playNext() {
-    if (!queue.length) { playing = false; onSpeaking?.(false); return; }
+    if (!queue.length) { playing = false; speaker = undefined; onWho?.(undefined); onSpeaking?.(false); return; }
     playing = true; onSpeaking?.(true);
     const gen = speakingGen;
-    const audio = await queue.shift();
+    const item = queue.shift();
+    const audio = await item.audio;
     if (gen !== speakingGen) return;
     if (!audio) return playNext();
     if (ctx.state === "suspended") await ctx.resume();
     const src = ctx.createBufferSource(); src.buffer = audio; src.connect(out);
     current = src;
+    if (speaker !== item.who) { speaker = item.who; onWho?.(item.who); }
     src.onended = () => { current = null; playNext(); };
     src.start();
   }
@@ -51,10 +54,18 @@ export function createVoice({ onMouth, onMic, onUtterance, onSpeaking, onError }
     if (pending.includes("\n\n")) { const [a, ...b] = pending.split("\n\n"); enqueue(a); pending = b.join("\n\n"); }
   }
   function flush() { if (pending.trim()) enqueue(pending); pending = ""; }
+  /** A whole message in someone's voice, after everything already queued: the swarm takes turns. */
+  function say(textIn, voiceId, who) {
+    const parts = [];
+    for (const p of String(textIn).split(/(?<=[.!?…])\s+|\n{2,}/)) {
+      if (parts.length && parts[parts.length - 1].length < 60) parts[parts.length - 1] += " " + p; else parts.push(p);
+    }
+    for (const p of parts) enqueue(p, voiceId, who);
+  }
   function stopSpeaking() {
     speakingGen++; queue.length = 0; pending = "";
     try { current?.stop(); } catch { /* not started */ }
-    current = null; playing = false; onSpeaking?.(false);
+    current = null; playing = false; speaker = undefined; onWho?.(undefined); onSpeaking?.(false);
   }
 
   // ── listening ───────────────────────────────────────────────────────
@@ -118,7 +129,8 @@ export function createVoice({ onMouth, onMic, onUtterance, onSpeaking, onError }
   tick();
 
   return {
-    feed, flush, stopSpeaking,
+    feed, flush, say, stopSpeaking,
+    get speaker() { return speaker; },
     get speaking() { return playing; },
     setThreshold(v) { threshold = v; },
     async pushStart() { await ensureMic(); if (ctx.state === "suspended") await ctx.resume(); stopSpeaking(); startRec(); },

@@ -17,10 +17,10 @@ async function fail(res) {
   throw new Error(`ElevenLabs: ${typeof msg === "string" ? msg : JSON.stringify(msg)}`);
 }
 
-/** text → mp3 bytes. */
-export async function speak(text) {
+/** text → mp3 bytes, in the given voice (a bot's) or the user's chosen one. */
+export async function speak(text, voiceId) {
   const s = getSettings();
-  const res = await fetch(`${API}/text-to-speech/${encodeURIComponent(s.voiceId)}?output_format=mp3_44100_128`, {
+  const res = await fetch(`${API}/text-to-speech/${encodeURIComponent(voiceId || s.voiceId)}?output_format=mp3_44100_128`, {
     method: "POST",
     headers: { "xi-api-key": key(), "content-type": "application/json", accept: "audio/mpeg" },
     body: JSON.stringify({ text, model_id: s.ttsModel, voice_settings: { stability: 0.45, similarity_boost: 0.8 } }),

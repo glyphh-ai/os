@@ -231,3 +231,88 @@ img.ico { object-fit: contain; border-radius: 3px; }
 .toast { padding: 8px 14px; border-radius: 10px; background: rgba(20, 12, 32, 0.92); border: 1px solid var(--line-2); box-shadow: 0 0 20px var(--accent-glow); animation: tin 0.25s; }
 .toast.bad { border-color: var(--bad); }
 @keyframes tin { from { opacity: 0; transform: translateY(-6px); } }
+
+/* ── bots: black-and-white cats that are alive ─────────────────────── */
+.cat-svg { overflow: visible; }
+.cat-svg .cat-body { transform-origin: 50% 90%; animation: cat-bob 3.2s ease-in-out infinite; }
+.cat-svg .ear-l { transform-box: fill-box; transform-origin: 90% 100%; animation: cat-ear 5.5s ease-in-out infinite; }
+.cat-svg .cat-eye { transform-box: fill-box; transform-origin: 50% 50%; animation: cat-blink 4.6s infinite; }
+.busy .cat-svg .cat-body, .cat.busy .cat-svg .cat-body { animation-duration: 0.9s; }
+.talking .cat-svg .cat-body { animation: cat-talk 0.32s ease-in-out infinite alternate; }
+.talking .cat-svg .cat-eye { animation: none; }
+@keyframes cat-bob { 0%, 100% { transform: translateY(0) scaleY(1); } 50% { transform: translateY(-3px) scaleY(1.015); } }
+@keyframes cat-ear { 0%, 86%, 100% { transform: rotate(0); } 89% { transform: rotate(-14deg); } 93% { transform: rotate(6deg); } }
+@keyframes cat-blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.08); } }
+@keyframes cat-talk { from { transform: scale(1, 1); } to { transform: scale(1.04, 0.95) translateY(3px); } }
+.ico.cat-svg { width: 16px; height: 16px; }
+.rail-mini .ico.cat-svg { width: 18px; height: 18px; }
+
+.bot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; padding: 10px; align-content: start; }
+.bot-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px 8px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.025); cursor: pointer; color: var(--text-2); }
+.bot-tile:hover { border-color: rgba(255, 255, 255, 0.5); color: #fff; box-shadow: 0 0 16px rgba(255, 255, 255, 0.12); }
+.bot-tile .cat { width: 50px; height: 60px; display: grid; place-items: center; }
+.bot-tile .cat svg { width: 100%; height: 100%; }
+.bot-tile .cat.plus { font-size: 28px; color: var(--text-3); border: 1px dashed var(--line-2); border-radius: 12px; width: 46px; height: 46px; margin: 7px 0; }
+.bot-tile .n { font-weight: 600; font-size: 12px; text-align: center; }
+.bot-tile small { color: var(--text-3); font-size: 10.5px; }
+.bot-tile.add { border-style: dashed; }
+.bot-tile .edit { position: absolute; top: 4px; right: 7px; opacity: 0; font-size: 11px; color: var(--text-3); }
+.bot-tile:hover .edit { opacity: 1; }
+.bot-tile.busy::after, .bot-tile.talking::after { content: ""; position: absolute; top: 7px; left: 8px; width: 6px; height: 6px; border-radius: 3px; background: #fff; box-shadow: 0 0 8px #fff; animation: pulse 1s infinite; }
+.bot-tile.talking { border-color: rgba(255, 255, 255, 0.6); }
+.bot-form { padding: 4px 2px; grid-column: 1 / -1; }
+.bot-form label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--text-2); flex: 1; }
+.bot-form input, .bot-form select, .bot-form textarea { background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); border-radius: 9px; padding: 6px 9px; outline: 0; color: var(--text); resize: vertical; }
+.bot-form input:focus, .bot-form textarea:focus, .bot-form select:focus { border-color: #fff; }
+.bot-form .row { display: flex; gap: 8px; }
+.bot-form-head { display: flex; gap: 12px; align-items: center; }
+.bot-form .cat.big { width: 64px; height: 78px; flex: none; } .bot-form .cat.big svg { width: 100%; height: 100%; }
+.bot-form .hint { color: var(--text-3); font-size: 11.5px; line-height: 1.5; }
+
+.bot-head .who { display: flex; align-items: center; gap: 7px; } .bot-head .who small { color: var(--text-3); }
+.bot-head .who .ico { width: 18px; height: 18px; }
+.bot-stage { position: relative; flex: 0 0 40%; min-height: 150px; }
+.bot-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bot-caption { position: absolute; left: 10px; right: 10px; bottom: 6px; text-align: center; font-size: 12px; color: var(--text-2); text-shadow: 0 1px 8px #000; pointer-events: none; }
+.bot-log { display: flex; flex-direction: column; gap: 7px; padding: 8px 10px; border-top: 1px solid var(--line); }
+.bot-composer { flex: none; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.bot-composer .bar { padding: 5px; border-radius: 14px; align-items: flex-end; }
+.bot-composer textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; padding: 5px 4px; min-height: 28px; max-height: 120px; font-size: 13px; user-select: text; caret-color: #fff; }
+.bot-composer .send { width: 30px; height: 30px; font-size: 15px; background: #fff; color: #0b0a0f; box-shadow: 0 0 12px rgba(255, 255, 255, 0.25); }
+.bot-composer .send.stop { background: var(--bad); color: #fff; }
+.bot-composer .icon-btn { width: 30px; height: 30px; font-size: 13px; }
+.bot-composer .chips { flex-wrap: wrap; }
+
+.swarm-top { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.swarm-top .tb.on { border-color: #fff; color: #fff; }
+.swarm-goal { flex: 1; min-width: 0; display: flex; flex-direction: column; } .swarm-goal small { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; }
+.swarm-team { flex: none; display: flex; gap: 6px; padding: 8px 10px; overflow-x: auto; }
+.swarm-team:empty { display: none; }
+.bot-tile.mini { flex: 0 0 72px; padding: 6px 2px; } .bot-tile.mini .cat { width: 38px; height: 46px; }
+.swarm-stream { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; }
+.smsg { display: flex; gap: 10px; align-items: flex-start; }
+.smsg .cat { width: 30px; height: 36px; flex: none; display: grid; place-items: center; }
+.smsg .cat svg, .smsg .cat img { width: 100%; height: 100%; object-fit: contain; }
+.smsg .cat .you { font-size: 10px; color: var(--text-3); border: 1px solid var(--line-2); border-radius: 8px; padding: 2px 4px; }
+.smsg .b { min-width: 0; flex: 1; padding: 7px 10px; border-radius: 4px 12px 12px 12px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.07); }
+.smsg.glyphh .b { border-color: var(--line-2); background: rgba(173, 93, 248, 0.08); }
+.smsg.you { flex-direction: row-reverse; } .smsg.you .b { border-radius: 12px 4px 12px 12px; background: rgba(255, 255, 255, 0.09); }
+.smsg.talking .b { border-color: rgba(255, 255, 255, 0.7); box-shadow: 0 0 16px rgba(255, 255, 255, 0.14); }
+.smsg .n { font-weight: 600; font-size: 12px; display: flex; gap: 6px; align-items: baseline; }
+.smsg .n .to { color: var(--text-3); font-weight: 400; } .smsg .n time { margin-left: auto; color: var(--text-3); font-weight: 400; font-size: 10.5px; }
+.smsg .t { white-space: pre-wrap; word-wrap: break-word; color: var(--text); margin-top: 2px; user-select: text; }
+.swarm-start { padding: 14px; overflow: auto; }
+.swarm-start label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--text-2); }
+.swarm-start input { background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; outline: 0; color: var(--text); }
+.swarm-start .hint { color: var(--text-3); line-height: 1.5; }
+.reqs { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.req.ok { color: var(--ok); } .req.bad { color: var(--warn); }
+.swarm-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+.pick { flex-direction: row !important; align-items: center; gap: 6px !important; padding: 4px 8px 4px 4px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; color: var(--text) !important; font-size: 12px !important; }
+.pick .cat { width: 22px; height: 26px; } .pick .cat svg { width: 100%; height: 100%; }
+.pick input { accent-color: #fff; }
+.plan { padding-bottom: 10px; }
+.plan-item { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid rgba(173, 93, 248, 0.08); }
+.plan-item .st { width: 14px; color: var(--text-3); } .plan-item.done .st { color: var(--ok); } .plan-item.doing .st { color: #fff; }
+.plan-item .t { flex: 1; } .plan-item.done .t { color: var(--text-3); text-decoration: line-through; }
+.plan-item .cat { width: 20px; height: 24px; flex: none; } .plan-item .cat svg { width: 100%; height: 100%; }

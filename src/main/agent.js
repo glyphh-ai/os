@@ -24,7 +24,10 @@ Keep spoken replies short and natural: one to three sentences, no markdown table
 The screen has a left rail (areas "left" and "left-bottom", git by default at the bottom), a right rail ("right" and "right-bottom", the terminal by default at the bottom), and the center: a swipeable carousel whose first slide is your face, then one slide per app or per layout (a grid of apps). Apps: files, editor, terminal, browser, git, email, calendar, connections, instagram, x, slack, youtube, the user's custom apps, and any url.
 Use the os_* tools to drive the UI: open, move, focus and close apps, navigate and operate web apps (outline first to find selectors, then click/type/read), run commands in the visible terminal, open files in the editor, and load .dip workspaces.
 Email, calendar and other accounts come from the user's Claude connectors; use those tools for data and the web apps for anything they cannot do.
-Never send, post, delete or buy anything without the user saying yes to that exact action first.`;
+Never send, post, delete or buy anything without the user saying yes to that exact action first.
+You are also the user's Glyphh: their instructor and the orchestrator of their bots. The user has Glyphh bots (bots_list): alien cats, each with a name, role, personality, voice and its own Claude session. Open the Bots app to show them; bot_open shows one bot's panel; bot_send talks to one.
+For work that needs a team, run a swarm: swarm_start on a git repo (every bot gets its own branch and worktree off swarm/<slug>/main), swarm_plan a short plan, swarm_assign one task per bot, then wait. Each bot's report reaches you as a message starting "[swarm] <name> reports:"; answer it by merging finished work (swarm_merge), assigning the next task, or asking a bot to fix something. Keep your swarm replies to one or two spoken sentences: the whole team hears them. Messages starting "[swarm, from the user]" are the user talking to the team. When the plan is done, swarm_finish (a pull request by default, which asks the user).
+Bots remember through the Glyphh connector (glyphh_orchestrator_recall / _remember, scoped to each bot) and learn decisions with Ada gates (glyphh_bot_model, glyphh_bot_decide, glyphh_bot_record): give a bot a gate when it makes the same call again and again, and record only real outcomes and the user's verdicts.`;
 
 function claudeExecutable() {
   const s = getSettings();
@@ -32,8 +35,8 @@ function claudeExecutable() {
   try { return execFileSync("/bin/sh", ["-lc", "command -v claude"], { encoding: "utf8" }).trim() || undefined; } catch { return undefined; }
 }
 
-/** The "os" tool server. `ui(cmd, args)` round-trips to the renderer. */
-function osServer(ui) {
+/** The "os" tool server. `ui(cmd, args)` round-trips to the renderer; `extra` adds tools (the swarm's). */
+export function osServer(ui, extra = []) {
   return createSdkMcpServer({
     name: "os",
     version: "0.1.0",
@@ -74,9 +77,11 @@ function osServer(ui) {
       tool("os_screenshot", "See the whole Glyphh OS window.", {},
         safe(async () => ({ content: [{ type: "image", data: await ui("screenshot", {}), mimeType: "image/png" }] }))),
       tool("os_notify", "Show a short toast on screen.", { message: z.string() }, safe(async (a) => text(await ui("toast", a)))),
+      ...extra,
     ],
   });
 }
+export { tool, text, safe, z };
 
 /** An endless prompt stream the session reads from: continuous conversation. */
 function inbox() {
@@ -96,23 +101,30 @@ function inbox() {
   };
 }
 
+/**
+ * One Claude session. The OS's own Glyphh agent uses the default profile; each
+ * bot passes its own: its persona as the system prompt, its own folder (a git
+ * worktree in a swarm), model, effort and tool servers.
+ */
 export class Agent {
-  constructor({ emit, ui, askPermission }) {
-    this.emit = emit; this.ui = ui; this.askPermission = askPermission;
+  constructor({ emit, ui, askPermission, profile = {} }) {
+    this.emit = emit; this.ui = ui; this.askPermission = askPermission; this.profile = profile;
     this.q = null; this.in = null; this.sessionId = null; this.busy = false; this.models = []; this.servers = [];
   }
 
   start() {
-    const s = getSettings();
+    const s = getSettings(), p = this.profile;
     this.in = inbox();
+    const cwd = p.cwd?.() || s.cwd;
+    const model = p.model?.() || s.model;
     const options = {
-      cwd: fs.existsSync(s.cwd) ? s.cwd : process.env.HOME,
-      model: s.model && s.model !== "default" ? s.model : undefined,
-      effort: s.effort,
+      cwd: fs.existsSync(cwd) ? cwd : process.env.HOME,
+      model: model && model !== "default" ? model : undefined,
+      effort: p.effort?.() || s.effort,
       includePartialMessages: true,
       settingSources: ["user", "project", "local"],
-      systemPrompt: { type: "preset", preset: "claude_code", append: SYSTEM },
-      mcpServers: { os: osServer(this.ui) },
+      systemPrompt: { type: "preset", preset: "claude_code", append: p.system?.() || SYSTEM },
+      mcpServers: p.mcp?.() || { os: osServer(this.ui) },
       pathToClaudeCodeExecutable: claudeExecutable(),
       resume: this.sessionId || undefined,
       stderr: (d) => this.emit({ type: "log", text: String(d) }),
@@ -123,10 +135,11 @@ export class Agent {
     } else {
       options.canUseTool = async (name, input, { signal }) => {
         if (READ_ONLY.has(name) || name.startsWith("mcp__os__")) return { behavior: "allow", updatedInput: input };
-        const ok = await this.askPermission(name, input, signal);
+        const ok = await this.askPermission(p.label ? `${p.label} · ${name}` : name, input, signal);
         return ok ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "The user said no." };
       };
     }
+    if (p.env) options.env = { ...process.env, ...p.env };
     const q = query({ prompt: this.in, options });
     this.q = q;
     this.pump(q);
@@ -150,7 +163,7 @@ export class Agent {
           for (const b of m.message.content || []) if (b.type === "tool_use") this.emit({ type: "tool", name: b.name, input: b.input });
         } else if (m.type === "result") {
           this.busy = false;
-          this.emit({ type: "done", ok: m.subtype === "success", error: m.subtype !== "success" ? (m.errors?.join("\n") || m.subtype) : undefined, cost: m.total_cost_usd });
+          this.emit({ type: "done", ok: m.subtype === "success", text: m.result || "", error: m.subtype !== "success" ? (m.errors?.join("\n") || m.subtype) : undefined, cost: m.total_cost_usd });
         }
       }
     } catch (e) {

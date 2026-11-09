@@ -5,7 +5,8 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { Agent, askConnectors } from "./agent.js";
+import { Agent, askConnectors, osServer } from "./agent.js";
+import { BotHub } from "./bots.js";
 import * as rpa from "./rpa.js";
 import * as sys from "./system.js";
 import * as voice from "./voice.js";
@@ -49,7 +50,17 @@ function askPermission(name, input, signal) {
   });
 }
 
-const agent = new Agent({ emit: (e) => send("agent:event", e), ui, askPermission });
+// Glyphh, the user's own agent, is also the swarm's orchestrator: its os server carries the bot and swarm tools.
+let hub = null;
+const agent = new Agent({
+  emit: (e) => {
+    send("agent:event", e);
+    if (e.type === "done" && e.text && hub?.swarm?.status === "running") hub.post("glyphh", e.text);
+  },
+  ui, askPermission,
+  profile: { mcp: () => ({ os: osServer(ui, hub.orchestratorTools()) }), env: { ENABLE_TOOL_SEARCH: "auto" } },
+});
+hub = new BotHub({ emit: send, ui, askPermission, main: agent });
 
 // ── IPC ───────────────────────────────────────────────────────────────
 const handle = (ch, fn) => ipcMain.handle(ch, async (_e, ...a) => fn(...a));
@@ -70,7 +81,24 @@ handle("agent:connections", () => agent.connections());
 handle("agent:busy", () => agent.busy);
 handle("connectors:ask", (kind) => askConnectors(kind));
 
-handle("voice:speak", (t) => voice.speak(t));
+handle("voice:speak", (t, voiceId) => voice.speak(t, voiceId));
+
+handle("bots:list", () => hub.list);
+handle("bots:create", (spec) => hub.create(spec));
+handle("bots:update", (id, patch) => hub.update(id, patch));
+handle("bots:remove", (id) => hub.remove(id));
+handle("bot:send", (id, t) => hub.send(id, t));
+handle("bot:interrupt", (id) => hub.interrupt(id));
+handle("bot:new", (id) => hub.newChat(id));
+handle("bot:busy", (id) => hub.busy(id));
+handle("swarm:get", () => hub.swarm);
+handle("swarm:check", (repo) => hub.requirements(repo || getSettings().cwd));
+handle("swarm:start", (spec) => hub.start(spec));
+handle("swarm:stop", () => hub.stop());
+handle("swarm:resume", () => hub.resume());
+handle("swarm:finish", (opts) => hub.finish(opts));
+// the user talks to the team: it lands in the stream and goes to Glyphh, who orchestrates
+handle("swarm:say", (t) => { hub.post("you", t); agent.send(`[swarm, from the user] ${t}`); });
 handle("voice:transcribe", (bytes, mime) => voice.transcribe(Buffer.from(bytes), mime));
 handle("voice:voices", () => voice.voices());
 

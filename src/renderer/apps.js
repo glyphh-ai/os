@@ -80,6 +80,7 @@ export function iconHTML(id) {
   if (id === "face") return `<img class="ico" src="brand/glyphh-mark-purple.png" alt="">`;
   if (P[id]) return svg(P[id]);
   const d = APPS[id];
+  if (d?.iconHTML) return d.iconHTML;
   if (!d?.web) return svg(P.browser);
   // the site's favicon; until it's known, or if it won't load, the globe
   const src = faviconOf(id);

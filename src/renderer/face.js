@@ -5,17 +5,23 @@
 import * as THREE from "three";
 import { mesh as buildMesh, PRESETS } from "./character.js";
 
-const LISTEN = new THREE.Color("#7fd4ff");
+// black and white: listening shows as a brighter glow, not a colour
+const LISTEN = new THREE.Color("#ffffff");
 const STYLE_ID = { contour: 0, grid: 1, hologram: 2, points: 3 };
 
 const vert = `
-  uniform float uOpen; uniform float uTime;
+  uniform float uOpen; uniform float uTime; uniform float uTwitch; uniform float uWag;
   varying vec3 vN; varying vec3 vV; varying vec3 vL;
   void main() {
     vec3 p = position;
-    // the ears twitch a little while it talks
-    float ear = smoothstep(0.95, 1.6, p.y);
-    p.x += ear * (p.x < 0.0 ? -1.0 : 1.0) * uOpen * 0.06 * sin(uTime * 18.0);
+    // the ear tips twitch now and then, and flick while it talks
+    float ear = smoothstep(1.45, 2.1, p.y);
+    p.x += ear * (p.x < 0.0 ? -1.0 : 1.0) * (uTwitch * 0.09 + uOpen * 0.05 * sin(uTime * 18.0));
+    // the tail wags about its root
+    float tw = smoothstep(0.62, 1.1, p.x) * step(p.y, -0.95);
+    vec2 r = p.xy - vec2(0.64, -1.19);
+    float a = uWag * tw;
+    p.xy = mix(p.xy, vec2(0.64, -1.19) + vec2(r.x * cos(a) - r.y * sin(a), r.x * sin(a) + r.y * cos(a)), tw);
     vL = p;
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
@@ -54,7 +60,8 @@ function dotTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-export function createFace(canvas) {
+/** `compact`: a bot's small avatar — no HUD rings or motes, framed tighter. */
+export function createFace(canvas, { compact = false } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio));
   renderer.setClearColor(0x000000, 0);
@@ -64,11 +71,11 @@ export function createFace(canvas) {
 
   const bust = new THREE.Group(); scene.add(bust);
   const head = new THREE.Group(); bust.add(head);
-  const color = new THREE.Color("#ad5df8");
-  const baseColor = new THREE.Color("#ad5df8");
+  const color = new THREE.Color("#ffffff");
+  const baseColor = new THREE.Color("#ffffff");
   const dot = dotTexture();
 
-  const uniforms = { uColor: { value: color }, uTime: { value: 0 }, uGlow: { value: 1 }, uOpen: { value: 0 }, uStyle: { value: 0 }, uDensity: { value: 22 } };
+  const uniforms = { uColor: { value: color }, uTime: { value: 0 }, uGlow: { value: 1 }, uOpen: { value: 0 }, uStyle: { value: 0 }, uDensity: { value: 22 }, uTwitch: { value: 0 }, uWag: { value: 0 } };
   const lineMat = new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: frag, uniforms, transparent: true, depthWrite: false, depthFunc: THREE.LessEqualDepth, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   // a depth-only copy first, so lines on the far side of the head stay hidden: reads as a solid wireframe
   const occluder = new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: "void main(){ gl_FragColor = vec4(0.0); }", uniforms, colorWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
@@ -133,12 +140,12 @@ export function createFace(canvas) {
     if (style === 3) head.add(points); else head.add(lineMesh);
     buildEye(m.eye);
     eye.position.set(m.eye.x, m.eye.y, m.eye.z);
-    baseColor.set(c.color || "#ad5df8");
+    baseColor.set(c.color || "#ffffff");
     uniforms.uDensity.value = c.density || 22;
   }
 
   // HUD rings around the bust
-  const hud = new THREE.Group(); scene.add(hud);
+  const hud = new THREE.Group(); if (!compact) scene.add(hud);
   const rings = [];
   const ringMat = (o) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: o, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false });
   const addRing = (r, w, arc, tilt, o, speed, y = 0) => {
@@ -156,23 +163,26 @@ export function createFace(canvas) {
   for (let i = 0; i < N; i++) { const r = 1.9 + Math.random() * 1.8, a = Math.random() * Math.PI * 2; motes.set([Math.cos(a) * r, -2 + Math.random() * 3.6, Math.sin(a) * r], i * 3); }
   const mg = new THREE.BufferGeometry(); mg.setAttribute("position", new THREE.BufferAttribute(motes, 3));
   const moteCloud = new THREE.Points(mg, new THREE.PointsMaterial({ size: 0.018, map: dot, color, transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending }));
-  scene.add(moteCloud);
+  if (!compact) scene.add(moteCloud);
 
-  let state = "idle", mouth = 0, mouthTarget = 0, mic = 0, mx = 0, my = 0, blink = 0, nextBlink = 2;
+  let state = "idle", mouth = 0, mouthTarget = 0, mic = 0, mx = 0, my = 0, blink = 0, nextBlink = 2, twitch = 0, nextTwitch = 3, wag = 0;
   const spin = { idle: 1, listening: 1.6, thinking: 4.5, speaking: 1.4 };
-  window.addEventListener("pointermove", (e) => { mx = (e.clientX / innerWidth - 0.5) * 2; my = (e.clientY / innerHeight - 0.5) * 2; });
+  const onMove = (e) => { mx = (e.clientX / innerWidth - 0.5) * 2; my = (e.clientY / innerHeight - 0.5) * 2; };
+  window.addEventListener("pointermove", onMove);
 
   const resize = () => {
     const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return;
     renderer.setSize(w, h, false); camera.aspect = w / h;
-    const dist = 10.5 * Math.max(1, 0.85 / (w / h));
+    const dist = (compact ? 9.4 : 10.5) * Math.max(1, (compact ? 0.95 : 0.85) / (w / h));
     camera.position.set(0.05, 0.3, dist); camera.lookAt(target);
     camera.updateProjectionMatrix();
   };
-  new ResizeObserver(resize).observe(canvas); resize();
+  const ro = new ResizeObserver(resize); ro.observe(canvas); resize();
+  let alive = true;
 
   let last = performance.now(), t = 0;
   function frame() {
+    if (!alive) return;
     requestAnimationFrame(frame);
     const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt;
     if (document.hidden || !canvas.clientWidth) return;
@@ -191,6 +201,14 @@ export function createFace(canvas) {
     blink = Math.max(0, blink - dt * 6);
     const lid = 1 - Math.sin(blink * Math.PI) * 0.92;
     eye.scale.set(1, lid, 1);
+    // alive: an ear flick every few seconds, a tail that wags (faster when busy or talking), a little hop on loud words
+    nextTwitch -= dt; if (nextTwitch < 0) { twitch = 1; nextTwitch = 2 + Math.random() * 5; }
+    twitch = Math.max(0, twitch - dt * 4);
+    uniforms.uTwitch.value = Math.sin(twitch * Math.PI * 3) * twitch;
+    const wagSpeed = state === "thinking" ? 7 : state === "speaking" ? 5 : 2.2;
+    wag += dt * wagSpeed;
+    uniforms.uWag.value = Math.sin(wag) * (state === "idle" ? 0.12 : 0.22);
+    bust.scale.set(1 + open * 0.025, 1 - open * 0.03 + Math.sin(t * 1.8) * 0.006, 1);
     // the pupil looks toward the pointer, sits right of center like the mark, and dilates with the voice
     const ps = eyeSpec.scale * (1 + open * 0.3 + (state === "listening" ? mic * 0.3 : 0));
     pupilG.scale.set(ps, ps, 1);
@@ -212,5 +230,6 @@ export function createFace(canvas) {
     setMic(level) { mic = level; },
     setCharacter,
     get character() { return character; },
+    dispose() { alive = false; ro.disconnect(); window.removeEventListener("pointermove", onMove); geo?.dispose(); renderer.dispose(); },
   };
 }

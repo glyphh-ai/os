@@ -52,7 +52,8 @@ export const PARTS = {
 };
 
 const base = { depth: 1, bevel: 1, eye: 1, pupil: 1, head: "classic", tail: "spike", look: "dot", extra: "none" };
-const cat = (name, o = {}) => ({ name, ...base, ...o, style: "contour", color: "#ad5df8" });
+// black and white, always: white light on the dark glass, like the mark's white outline on black
+const cat = (name, o = {}) => ({ name, ...base, ...o, style: "contour", color: "#ffffff" });
 // the bot cats from the brand exploration
 export const PRESETS = {
   glyphh: cat("Glyphh"),
@@ -72,6 +73,28 @@ export const PRESETS = {
   cape: cat("Cape", { extra: "cape" }),
   "bolt-mark": cat("Bolt mark", { extra: "bolt" }),
 };
+
+/** The cat as the flat black-and-white mark (an SVG string), its parts classed so CSS can animate them. */
+export function catSVG(c = {}) {
+  const q = { ...base, ...c };
+  const head = HEADS[q.head] || HEADS.classic, tail = TAILS[q.tail] || TAILS.spike, look = EYES[q.look] || EYES.dot;
+  const body = `M40 62 ${head.top} C140 70 144 104 128 121 L112 133 ${tail.d} L128 179 L35 180 L44 131 C18 118 20 80 40 62 Z`;
+  const ink = "#0b0a0f";
+  const antenna = q.extra === "antenna";
+  const pupil = look.pupil.c
+    ? `<circle cx="${look.pupil.c[0]}" cy="${look.pupil.c[1]}" r="${look.pupil.c[2]}" fill="#fff"/>${look.dot ? `<circle cx="${look.dot[0]}" cy="${look.dot[1]}" r="${look.dot[2]}" fill="${ink}"/>` : ""}`
+    : `<path d="${look.pupil.d}" fill="#fff"/>`;
+  return `<svg class="cat-svg" viewBox="0 0 165 200" aria-hidden="true">`
+    + (q.extra === "cape" ? `<path class="cape" d="${CAPE}" fill="${ink}" stroke="#fff" stroke-width="7" stroke-linejoin="round"/>` : "")
+    + `<g class="cat-body"><g fill="#fff" stroke="#fff" stroke-width="16" stroke-linejoin="round"><path d="${body}"/><path class="ear-l" d="${head.ear}"/>`
+    + (antenna ? `<path d="M86 46 L92 18" stroke-width="20" stroke-linecap="round"/><circle cx="93" cy="14" r="9"/>` : "") + `</g>`
+    + `<path d="${body}" fill="${ink}"/><path class="ear-l" d="${head.ear}" fill="${ink}"/>`
+    + `<path d="${GAP}" fill="#fff"/>` + (q.extra === "bolt" ? `<path d="${BOLT}" fill="${ink}"/>` : "")
+    + (antenna ? `<path d="M86 46 L92 18" stroke="${ink}" stroke-width="5" stroke-linecap="round"/><circle cx="93" cy="14" r="7" fill="${ink}"/>` : "")
+    + `<g class="cat-eye"><path d="${look.ring}" fill="none" stroke="#fff" stroke-width="8"/>${pupil}`
+    + (look.lashes ? `<path d="${look.lashes}" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>` : "")
+    + (look.sparkle ? `<path d="${look.sparkle}" fill="#fff"/>` : "") + `</g></g></svg>`;
+}
 
 // ── the mark's paths, flattened into polygons in world units ───────────
 const S = 42, OX = 85, OY = 100;

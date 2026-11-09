@@ -16,6 +16,15 @@ contextBridge.exposeInMainWorld("os", {
   },
   connectors: { ask: inv("connectors:ask") },
   voice: { speak: inv("voice:speak"), transcribe: inv("voice:transcribe"), voices: inv("voice:voices") },
+  bots: {
+    list: inv("bots:list"), create: inv("bots:create"), update: inv("bots:update"), remove: inv("bots:remove"),
+    send: inv("bot:send"), interrupt: inv("bot:interrupt"), newChat: inv("bot:new"), busy: inv("bot:busy"),
+    onEvent: on("bot:event"), onList: on("bot:list"),
+  },
+  swarm: {
+    get: inv("swarm:get"), check: inv("swarm:check"), start: inv("swarm:start"), stop: inv("swarm:stop"),
+    resume: inv("swarm:resume"), finish: inv("swarm:finish"), say: inv("swarm:say"), onEvent: on("swarm:event"),
+  },
   fs: { list: inv("fs:list"), read: inv("fs:read"), write: inv("fs:write") },
   git: { status: inv("git:status"), diff: inv("git:diff"), stage: inv("git:stage"), unstage: inv("git:unstage"), commit: inv("git:commit") },
   term: {

@@ -10,6 +10,7 @@ import { createFace } from "./face.js";
 import { PRESETS, PARAMS, PARTS, STYLES } from "./character.js";
 import { createVoice } from "./voice.js";
 import { APPS, mountApp, webAppFor, registerCustom, slugify, iconHTML, onIconChange } from "./apps.js";
+import { initBots, fillVoices } from "./bots.js";
 
 const os = window.os;
 const $ = (s, r = document) => r.querySelector(s);
@@ -42,6 +43,7 @@ const BUILTIN_LAYOUTS = {
   dev: { name: "Dev", cols: 3, rows: 1, colWidths: [0.24, 0.46, 0.3], cells: [cell("files", 0, 0), cell("editor", 1, 0), cell("browser", 2, 0)] },
   social: { name: "Social", cols: 2, rows: 2, cells: [cell("x", 0, 0), cell("instagram", 1, 0), cell("youtube", 0, 1), cell("slack", 1, 1)] },
   comms: { name: "Comms", cols: 2, rows: 1, cells: [cell("email", 0, 0), cell("calendar", 1, 0)] },
+  swarm: { name: "Swarm", cols: 2, rows: 2, colWidths: [0.6, 0.4], cells: [cell("swarm", 0, 0, 2), cell("plan", 1, 0), cell("browser", 1, 1)] },
 };
 let savedLayouts = (await os.store.get("layouts")) || {};
 const allLayouts = () => ({ ...BUILTIN_LAYOUTS, ...savedLayouts });
@@ -300,7 +302,7 @@ function tabChip(id, active) {
 }
 
 // ── actions ───────────────────────────────────────────────────────────
-const appList = () => Object.keys(APPS).filter((k) => !APPS[k].adhoc).join(", ");
+const appList = () => Object.keys(APPS).filter((k) => !APPS[k].adhoc && !APPS[k].hidden).join(", ");
 function resolveApp(id, url) {
   if (/^https?:\/\/|^[\w-]+\.[a-z]{2,}(\/|$)/i.test(id)) return { id: webAppFor(id), url: url || id };
   if (!APPS[id]) { const byName = Object.keys(APPS).find((k) => APPS[k].title.toLowerCase() === String(id).toLowerCase()); if (byName) return { id: byName, url }; }
@@ -501,14 +503,28 @@ document.addEventListener("keydown", (e) => {
 const face = createFace($("#face"));
 let busy = false, recording = false, continuous = false, speakReplies = settings.speakReplies;
 const updateFace = () => face.setState(recording || (continuous && !voice.speaking && !busy) ? "listening" : voice.speaking ? "speaking" : busy ? "thinking" : "idle");
+let botsUI = null;
 const voice = createVoice({
-  onMouth: (v) => { face.setMouth(v); $("#pill-level").style.transform = `scaleX(${Math.max(0.05, v)})`; },
+  // whoever is speaking moves: a bot's own avatar, or Glyphh's face
+  onMouth: (v) => {
+    const who = voice?.speaker;
+    if (who) { botsUI?.mouth(who, v); face.setMouth(0); } else face.setMouth(v);
+    $("#pill-level").style.transform = `scaleX(${Math.max(0.05, v)})`;
+  },
+  onWho: (who) => botsUI?.onWho(who),
   onMic: (v) => { face.setMic(v); $("#mic-level i").style.width = v * 100 + "%"; },
   onUtterance: (t) => { send(t); },
   onSpeaking: () => updateFace(),
   onError: (m) => toast(m, true),
 });
 voice.setThreshold(settings.vadThreshold);
+botsUI = await initBots({
+  toast, voice, render,
+  open: (app, area) => openApp(app, area),
+  whereIs,
+  settings: () => settings,
+  models: () => models,
+});
 setInterval(() => { if (recording !== voice.recording) { recording = voice.recording; updateFace(); } }, 100);
 
 // ── characters: the Glyphh cat, its bot variants, and your own ────────
@@ -676,7 +692,8 @@ os.agent.onEvent((e) => {
       if (!botMsg) botMsg = addMsg("bot", "");
       botText += e.text; botMsg.textContent = botText; log.scrollTop = log.scrollHeight;
       caption(botText.split(/(?<=[.!?])\s+/).slice(-2).join(" "));
-      if (speakReplies && settings.elevenKeySet) voice.feed(e.text);
+      // in a swarm with voices on, Glyphh's words are spoken from the swarm's stream, in turn
+      if (speakReplies && settings.elevenKeySet && !botsUI?.swarmVoicesOn()) voice.feed(e.text);
       break;
     case "tool": {
       const short = e.name.replace(/^mcp__os__/, "").replace(/^mcp__/, "");
@@ -742,6 +759,13 @@ const handlers = {
     return useCharacter(key);
   },
   dip: (a) => dip(a.name, a.save),
+  bot: (a) => botsUI.openBot(a.id, a.area),
+  swarm: () => {
+    if (!isOpen("bots")) openApp("bots", "left");
+    const s = L.center.slides.find((x) => x.kind === "layout" && x.cells.some((c) => c.app === "swarm"));
+    if (s) { go(L.center.slides.indexOf(s) + 1); return "swarm is open"; }
+    return layoutFromArgs({ name: "swarm" });
+  },
   terminal: async () => { if (!isOpen("terminal")) openApp("terminal", "right-bottom"); else focusApp("terminal"); await new Promise((r) => setTimeout(r, 600)); return inst.get("terminal").api.termId; },
   edit: (a) => openFile(a.path, a.line),
   screenshot: () => os.screenshot(),
@@ -805,7 +829,7 @@ function drawLauncher() {
   if (LS.view === "edit") return body.append(appForm());
   if (LS.view === "build") return body.append(layoutBuilder());
   if (LS.tab === "apps") {
-    const ids = Object.keys(APPS).filter((k) => !APPS[k].adhoc);
+    const ids = Object.keys(APPS).filter((k) => !APPS[k].adhoc && !APPS[k].hidden);
     body.append(paged(ids, (id) => {
       const d = APPS[id];
       const t = tile(iconHTML(id), d.title, isOpen(id) ? "open" : d.custom ? new URL(d.web).hostname : "", () => {
@@ -909,6 +933,9 @@ function fillModels(list) {
 fillModels([]);
 os.agent.models().then(fillModels);
 $("#sel-effort").value = settings.effort;
+// the voice chip: Glyphh's own ElevenLabs voice (each bot has its own chip)
+fillVoices($("#sel-voice"), settings.voiceId);
+$("#sel-voice").onchange = async (e) => { settings = await os.settings.set({ voiceId: e.target.value }); toast("Voice: " + e.target.selectedOptions[0].text.replace(/ voice$/, "")); };
 $("#sel-model").onchange = async (e) => { settings = await os.settings.set({ model: e.target.value }); toast("Model: " + e.target.selectedOptions[0].text); };
 $("#sel-effort").onchange = async (e) => { settings = await os.settings.set({ effort: e.target.value }); toast("Effort: " + e.target.value); };
 
@@ -936,6 +963,9 @@ $$(".modal").forEach((m) => m.addEventListener("pointerdown", (e) => { if (e.tar
 // ── boot ──────────────────────────────────────────────────────────────
 setInterval(() => ($("#clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })), 1000);
 L.center.index = 0; // every boot opens on the face
+// the bots live in the left rail; once, put them there for a layout from before bots
+if (!L.botsSeen) { L.botsSeen = true; if (!isOpen("bots")) { L.areas.left.apps.unshift("bots"); L.areas.left.active = "bots"; } }
+for (const a of RAIL_AREAS) L.areas[a].apps = L.areas[a].apps.filter((id) => APPS[id]); // a deleted bot's panel
 render();
 os.agent.connections().then((list) => { setConnDots(list); if (list.length) setStatus("ok", `ready · ${list.filter((s) => s.status === "connected").length} connections`); }).catch(() => {});
 if (!settings.elevenKeySet) setTimeout(() => toast("Add your ElevenLabs key in Settings (top right) to talk"), 1200);
