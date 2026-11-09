@@ -5,7 +5,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { Agent, askConnectors, osServer, sessions } from "./agent.js";
+import { Agent, askConnectors, osServer, sessions, removeSession } from "./agent.js";
 import { BotHub } from "./bots.js";
 import * as rpa from "./rpa.js";
 import * as sys from "./system.js";
@@ -78,7 +78,13 @@ handle("settings:set", (patch) => {
 handle("agent:send", (t) => agent.send(t));
 handle("agent:interrupt", () => agent.interrupt());
 handle("agent:new", () => agent.newChat());
-handle("agent:sessions", () => sessions(getSettings().cwd));
+handle("agent:sessions", (all) => sessions(all ? undefined : getSettings().cwd));
+handle("agent:delete-session", async (id) => { if (id === agent.sessionId) agent.newChat(); await removeSession(id); return true; });
+// a folder chosen for one panel (Git's repo); doesn't move the OS
+handle("os:choose-folder", async (start) => {
+  const r = await dialog.showOpenDialog(win, { title: "Choose a folder", defaultPath: start || getSettings().cwd, properties: ["openDirectory"] });
+  return r.canceled ? null : r.filePaths[0] || null;
+});
 handle("agent:resume", (id) => agent.resume(id));
 handle("agent:session", () => agent.sessionId);
 // the OS's folder: Glyphh, the files, git and terminal all work here

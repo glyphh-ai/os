@@ -4,7 +4,7 @@
 // calendar, …) the CLI has. The OS hands it a tool server of its own, "os",
 // for driving the UI: open/close/move apps, swipe the carousel, drive any web
 // app, run lines in the terminal, open files, load .dip workspaces.
-import { query, tool, createSdkMcpServer, listSessions, getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
+import { query, tool, createSdkMcpServer, listSessions, getSessionMessages, deleteSession } from "@anthropic-ai/claude-agent-sdk";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { z } from "zod";
@@ -223,14 +223,15 @@ export class Agent {
   }
 }
 
-/** Past Glyphh sessions in a folder, newest first. */
+/** Past sessions, newest first: in one folder, or (no dir) across every folder. */
 export async function sessions(dir) {
-  const list = await listSessions({ dir, limit: 60 }).catch(() => []);
+  const list = await listSessions(dir ? { dir, limit: 80 } : { limit: 200 }).catch(() => []);
   return list
     .filter((s) => s.firstPrompt || s.summary)
     .sort((a, b) => b.lastModified - a.lastModified)
-    .map((s) => ({ id: s.sessionId, title: (s.customTitle || s.summary || s.firstPrompt || "Untitled").replace(/\s+/g, " ").slice(0, 120), at: s.lastModified, branch: s.gitBranch || "" }));
+    .map((s) => ({ id: s.sessionId, title: (s.customTitle || s.summary || s.firstPrompt || "Untitled").replace(/\s+/g, " ").slice(0, 120), at: s.lastModified, branch: s.gitBranch || "", cwd: s.cwd || dir || "" }));
 }
+export const removeSession = (id) => deleteSession(id);
 
 /** One read-only question to the user's connectors (email, calendar), answered as JSON. */
 export async function askConnectors(kind) {

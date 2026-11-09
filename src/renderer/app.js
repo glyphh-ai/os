@@ -148,8 +148,13 @@ function ctxFor(id) {
 }
 
 // ── sessions: pick a past one back up; the OS's folder ────────────────
-async function resumeSession(id, title) {
+async function resumeSession(id, title, cwd) {
   try {
+    // a session from another folder takes the OS there first (a session resumes in the folder it ran in)
+    if (cwd && cwd !== settings.cwd) {
+      settings = await os.settings.set({ cwd }); showFolder();
+      for (const a of ["files", "git", "terminal"]) inst.get(a)?.api?.setRoot?.(settings.cwd);
+    }
     const turns = await os.agent.resume(id);
     log.innerHTML = "";
     for (const t of turns.slice(-40)) addMsg(t.role === "user" ? "user" : "bot", t.text);

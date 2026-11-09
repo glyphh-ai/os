@@ -261,7 +261,10 @@ function mountTerminal(el, ctx) {
 // ── git ───────────────────────────────────────────────────────────────
 function mountGit(el, ctx) {
   let cwd = ctx.cwd;
-  const where = h("input", { value: cwd, spellcheck: "false" });
+  // the repo: a folder chip like the composer's; click picks another repo for this panel only
+  const where = h("button", { class: "chip folder", onclick: async () => { const p = await os.agent.chooseFolder(cwd); if (p) { cwd = p; showWhere(); render(); } } });
+  const showWhere = () => { where.textContent = "▸ " + (cwd.split("/").pop() || cwd); where.title = cwd + " (click to choose another repo)"; };
+  showWhere();
   const body = h("div", { class: "scroll" });
   const diff = h("div", { class: "scroll diff", style: "flex:0 0 40%;border-top:1px solid var(--line)" });
   const msg = h("input", { placeholder: "Commit message", spellcheck: "true" });
@@ -269,7 +272,7 @@ function mountGit(el, ctx) {
     body.innerHTML = "";
     let s;
     try { s = await os.git.status(cwd); } catch (e) { s = { error: e.message }; }
-    if (s.notRepo || s.error) { body.append(h("div", { class: "empty-note" }, s.error || `${cwd} isn't a git repository — type a repo folder above.`)); return; }
+    if (s.notRepo || s.error) { body.append(h("div", { class: "empty-note" }, s.error || `${cwd.split("/").pop()} isn't a git repository — pick a repo with the folder chip above.`)); return; }
     body.append(h("div", { class: "section-h" }, `⎇ ${s.branch}`));
     const staged = s.files.filter((f) => f.x !== " " && f.x !== "?");
     const changed = s.files.filter((f) => f.y !== " " || f.x === "?");
@@ -289,12 +292,11 @@ function mountGit(el, ctx) {
     if (!msg.value.trim()) return ctx.toast("Write a commit message first", true);
     try { await os.git.commit(cwd, msg.value.trim()); msg.value = ""; ctx.toast("Committed"); render(); } catch (e) { ctx.toast(e.message, true); }
   }
-  where.addEventListener("keydown", (e) => { if (e.key === "Enter") { cwd = where.value.trim(); render(); } });
-  el.append(h("div", { class: "toolbar" }, where, h("button", { class: "tb", onclick: render, title: "Refresh" }, "↻"),
+  el.append(h("div", { class: "toolbar" }, where, h("span", { style: "flex:1" }), h("button", { class: "tb", onclick: render, title: "Refresh" }, "↻"),
     h("button", { class: "tb", onclick: () => ctx.ask("Look at the uncommitted changes in " + cwd + " and write me a commit message.") }, "✦ message")), body, diff);
   render();
   const timer = setInterval(() => el.classList.contains("active") && document.hasFocus() && render(), 15000);
-  return { refresh: render, setRoot: (r) => { cwd = where.value = r; render(); }, unmount: () => clearInterval(timer) };
+  return { refresh: render, setRoot: (r) => { cwd = r; showWhere(); render(); }, unmount: () => clearInterval(timer) };
 }
 
 // ── email + calendar from the user's Claude connectors ────────────────
@@ -337,26 +339,72 @@ function mountConnector(el, ctx, kind) {
 const fmtDate = (s) => { const d = new Date(s); if (isNaN(d)) return ""; return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleDateString([], { month: "short", day: "numeric" }); };
 const fmtTime = (s) => { const d = new Date(s); return isNaN(d) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
 
-// ── recents: Glyphh's past sessions in the OS's folder; click one to pick it back up ──
+// ── recents: past sessions, one line each; pinned on top; by time (this folder) or by folder (all) ──
 function mountRecents(el, ctx) {
   const search = h("input", { placeholder: "Search sessions", spellcheck: "false" });
   const body = h("div", { class: "scroll" });
-  let list = [], current = null, root = ctx.cwd;
+  let list = [], current = null, root = ctx.cwd, menu = null;
+  let mode = (() => { try { return localStorage.getItem("glyphh-os-recents-mode") || "time"; } catch { return "time"; } })();
+  let marks = { pinned: [], archived: [] }, showArchived = false;
+  const saveMarks = () => os.store.set("recents", marks);
   const ago = (t) => { const s = (Date.now() - t) / 1000; return s < 3600 ? `${Math.max(1, Math.round(s / 60))}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`; };
+  const when = (t) => { const d = (Date.now() - t) / 86400000; return d < 1 && new Date(t).getDate() === new Date().getDate() ? "Today" : d < 2 ? "Yesterday" : d < 7 ? "This week" : d < 31 ? "This month" : "Older"; };
+  const closeMenu = () => { menu?.remove(); menu = null; };
+  function openMenu(s, anchor) {
+    closeMenu();
+    const pinned = marks.pinned.includes(s.id), archived = marks.archived.includes(s.id);
+    const item = (label, fn, cls = "") => h("button", { class: cls, onclick: async (e) => { e.stopPropagation(); closeMenu(); await fn(); draw(); } }, label);
+    menu = h("div", { class: "rmenu" },
+      item(pinned ? "Unpin" : "Pin", () => { marks.pinned = pinned ? marks.pinned.filter((x) => x !== s.id) : [s.id, ...marks.pinned]; saveMarks(); }),
+      item(archived ? "Unarchive" : "Archive", () => { marks.archived = archived ? marks.archived.filter((x) => x !== s.id) : [...marks.archived, s.id]; marks.pinned = marks.pinned.filter((x) => x !== s.id); saveMarks(); }),
+      item("Delete…", async () => {
+        if (!confirm(`Delete "${s.title.slice(0, 60)}"? Its transcript is removed for good.`)) return;
+        try { await os.agent.deleteSession(s.id); list = list.filter((x) => x.id !== s.id); marks.pinned = marks.pinned.filter((x) => x !== s.id); marks.archived = marks.archived.filter((x) => x !== s.id); saveMarks(); }
+        catch (e) { ctx.toast(e.message, true); }
+      }, "bad"));
+    const r = anchor.getBoundingClientRect(), b = el.getBoundingClientRect();
+    menu.style.top = r.bottom - b.top + 2 + "px"; menu.style.right = b.right - r.right + "px";
+    el.append(menu);
+  }
+  const row = (s) => h("div", { class: "recent" + (s.id === current ? " on" : "") + (marks.pinned.includes(s.id) ? " pinned" : ""), title: s.title, onclick: async () => { closeMenu(); current = s.id; draw(); await ctx.resume(s.id, s.title, s.cwd); } },
+    marks.pinned.includes(s.id) ? h("span", { class: "pin" }, "•") : null,
+    h("span", { class: "t" }, s.title), h("span", { class: "m" }, ago(s.at)),
+    h("button", { class: "more", title: "Pin, archive or delete", onclick: (e) => { e.stopPropagation(); openMenu(s, e.currentTarget); } }, "⋮"));
+  const group = (name) => h("div", { class: "rgroup" }, name);
   function draw() {
     body.innerHTML = "";
+    modeB.textContent = mode === "time" ? "by time" : "by folder";
     const q = search.value.trim().toLowerCase();
-    const shown = list.filter((s) => !q || s.title.toLowerCase().includes(q));
-    if (!shown.length) { body.append(h("div", { class: "empty-note" }, list.length ? "No sessions match." : `No sessions yet in ${root.split("/").pop()}.`)); return; }
-    for (const s of shown) body.append(h("div", { class: "recent" + (s.id === current ? " on" : ""), title: s.title, onclick: async () => { current = s.id; draw(); await ctx.resume(s.id, s.title); } },
-      h("span", { class: "t" }, s.title), h("span", { class: "m" }, (s.branch && s.branch !== "HEAD" ? "⎇ " + s.branch + " · " : "") + ago(s.at))));
+    const hit = (s) => !q || s.title.toLowerCase().includes(q) || (s.cwd || "").toLowerCase().includes(q);
+    const live = list.filter((s) => hit(s) && !marks.archived.includes(s.id));
+    if (!live.length && !marks.archived.length) { body.append(h("div", { class: "empty-note" }, list.length ? "No sessions match." : mode === "time" ? `No sessions yet in ${root.split("/").pop()}.` : "No sessions yet.")); return; }
+    const pinned = live.filter((s) => marks.pinned.includes(s.id)).sort((a, b) => marks.pinned.indexOf(a.id) - marks.pinned.indexOf(b.id));
+    if (pinned.length) { body.append(group("Pinned")); pinned.forEach((s) => body.append(row(s))); }
+    let last = null;
+    for (const s of live.filter((x) => !marks.pinned.includes(x.id))) {
+      const g = mode === "time" ? when(s.at) : (s.cwd || "").split("/").pop() || "~";
+      if (g !== last) { body.append(group(g)); last = g; }
+      body.append(row(s));
+    }
+    const arch = list.filter((s) => hit(s) && marks.archived.includes(s.id));
+    if (arch.length) {
+      body.append(h("div", { class: "rgroup toggle", onclick: () => { showArchived = !showArchived; draw(); } }, `${showArchived ? "▾" : "▸"} Archived (${arch.length})`));
+      if (showArchived) arch.forEach((s) => body.append(row(s)));
+    }
   }
   async function load() {
-    [list, current] = await Promise.all([os.agent.sessions().catch(() => []), os.agent.session().catch(() => null)]);
+    [list, current, marks] = await Promise.all([
+      os.agent.sessions(mode === "folder").catch(() => []),
+      os.agent.session().catch(() => null),
+      os.store.get("recents").then((m) => ({ pinned: [], archived: [], ...(m || {}) })).catch(() => marks),
+    ]);
     draw();
   }
+  const modeB = h("button", { class: "tb", title: "Group by time (this folder) or by folder (everywhere)", onclick: () => { mode = mode === "time" ? "folder" : "time"; try { localStorage.setItem("glyphh-os-recents-mode", mode); } catch { /* */ } load(); } });
   search.addEventListener("input", draw);
-  el.append(h("div", { class: "toolbar" }, search, h("button", { class: "tb", title: "Refresh", onclick: load }, "↻")), body);
+  document.addEventListener("click", (e) => { if (menu && !menu.contains(e.target)) closeMenu(); });
+  el.style.position = "relative";
+  el.append(h("div", { class: "toolbar" }, search, modeB, h("button", { class: "tb", title: "Refresh", onclick: load }, "↻")), body);
   load();
   return { refresh: load, setRoot: (r) => { root = r; load(); } };
 }
