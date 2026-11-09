@@ -118,7 +118,11 @@ let swarmVoices = (() => { try { return localStorage.getItem("glyphh-os-swarm-vo
 function speakMsg(m) {
   if (!swarmVoices || m.from === "you" || !ctx.settings().elevenKeySet) return;
   const b = botById(m.from);
-  ctx.voice.say(m.text, b ? b.voiceId : ctx.settings().voiceId, b ? b.id : undefined);
+  // spoken, a line is a turn in a conversation: the first two sentences, never a read-out task spec
+  const sentences = m.text.replace(/`/g, "").replace(/\s+/g, " ").match(/[^.!?]+[.!?]*/g) || [m.text];
+  let line = sentences.slice(0, 2).join("").trim();
+  if (line.length > 240) line = line.slice(0, 240).replace(/\s\S*$/, "") + "…";
+  ctx.voice.say(line.replace(/^([\w ]{1,20}): /, "$1, "), b ? b.voiceId : ctx.settings().voiceId, b ? b.id : undefined);
 }
 
 // ── Bots: the grid, and the bot template ──────────────────────────────
@@ -285,7 +289,7 @@ function mountSwarm(el) {
       h("div", { class: "hint" }, "A swarm is a team of your bots on one goal. Everything goes through git: each bot works on its own branch, Glyphh merges, and it ends as a pull request."),
       reqBox,
       h("label", {}, "Goal", goal), h("label", {}, "Repo", repo), h("label", {}, "Team"), picks, h("div", { class: "actions" }, go)));
-    if (swarm?.status === "done") top.append(h("div", { class: "hint" }, `Last swarm: ${swarm.goal} — ${swarm.result || "finished"}`));
+    if (swarm?.status === "done") top.append(h("div", { class: "hint" }, `Last swarm: ${swarm.goal} — ${String(swarm.result || "finished").split("\n")[0].replace(/ index\.\S+ \|.*$/, "").slice(0, 160)}`));
   }
   function drawRunning() {
     composer.hidden = false;
@@ -322,7 +326,8 @@ function mountSwarm(el) {
   let mode = null;
   const draw = () => {
     const m = swarm?.status === "running" ? "run" : "start";
-    if (m === "run") { if (mode !== "run") { top.innerHTML = ""; delete top.dataset.on; stream.innerHTML = ""; shown = 0; } drawRunning(); }
+    // the start form stacks (form, then the last swarm's note); running, the top is one row of controls
+    top.classList.toggle("start", m === "start");    if (m === "run") { if (mode !== "run") { top.innerHTML = ""; delete top.dataset.on; stream.innerHTML = ""; shown = 0; } drawRunning(); }
     else if (mode !== "start") drawStart();
     mode = m;
   };

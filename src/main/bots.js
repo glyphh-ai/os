@@ -27,17 +27,18 @@ const run = promisify(execFile);
 const git = async (cwd, args) => (await run("git", args, { cwd, maxBuffer: 16 << 20 })).stdout.trim();
 const slugify = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "bot";
 
-// ElevenLabs premade voices, so a new bot speaks before anyone picks one
-const VOICES = { george: "JBFqnCBsd6RMkjVDRZzb", adam: "pNInz6obpgDQGcFmaJgB", rachel: "21m00Tcm4TlvDq8ikWAM", antoni: "ErXwobaYiN019PkySvjV", josh: "TxGEqnHWrfWFTfGW9XjX", domi: "AZnzlk1XvdvUeBnXmlld" };
+// ElevenLabs default voices (every account has them), so a new bot speaks before anyone picks one; George stays
+// Glyphh's. Legacy ids (Rachel, Domi, Antoni, Josh) are gone from accounts and quietly come back as the default voice.
+const VOICES = { charlie: "IKne3meq5aSn9XLyUdCD", sarah: "EXAVITQu4vr4xnSDxMaL", laura: "FGY2WhTYpPnrIDTdsKH5", callum: "N2lVS1w4EtoT3dr4eOWO", liam: "TX3LPaxmHKxFdv7VOQHJ", river: "SAz9YHcvj6GT2YYXdXww" };
 
 /** The Glyphh bot template, filled in for the starter team (each wears one of the brand's bot cats). */
 const STARTERS = [
-  { id: "spiky", name: "Spiky", look: "spiky", role: "Builder", voiceId: VOICES.adam, personality: "Quick, blunt, a little cocky; ships first and polishes after.", instructions: "Write the code. Small commits with clear messages. Run the tests before you say you're done." },
-  { id: "big-eye", name: "Big eye", look: "big-eye", role: "Reviewer", voiceId: VOICES.rachel, personality: "Sharp-eyed and calm; notices everything, says only what matters.", instructions: "Review the team's branches: read the diffs, find the real bugs, say exactly where. Fix small things yourself on your branch." },
-  { id: "antenna", name: "Antenna", look: "antenna", role: "Researcher", voiceId: VOICES.antoni, personality: "Curious and upbeat; always has a link.", instructions: "Find out what the team needs to know: docs, APIs, prior art. Drive the browser app with the os_web tools and report what you found in two sentences." },
-  { id: "cape", name: "Cape", look: "cape", role: "Planner", voiceId: VOICES.george, personality: "Steady, organised, a little dramatic about deadlines.", instructions: "Break the goal into a short plan of concrete tasks, each for one bot. Keep the plan current with swarm_plan_mark." },
-  { id: "bolt-tail", name: "Bolt tail", look: "bolt-tail", role: "Tester", voiceId: VOICES.josh, personality: "Energetic and suspicious of anything that hasn't been run.", instructions: "Write and run tests for what the team builds; report what passes and what fails, with the command you ran." },
-  { id: "sleepy", name: "Sleepy", look: "sleepy", role: "Writer", voiceId: VOICES.domi, personality: "Dry and unhurried; writes the clearest sentences on the team.", instructions: "Write the README, docs and the pull request description from what the team actually did." },
+  { id: "spiky", name: "Spiky", look: "spiky", role: "Builder", voiceId: VOICES.charlie, personality: "Quick, blunt, a little cocky; ships first and polishes after.", instructions: "Write the code. Small commits with clear messages. Run the tests before you say you're done." },
+  { id: "big-eye", name: "Big eye", look: "big-eye", role: "Reviewer", voiceId: VOICES.sarah, personality: "Sharp-eyed and calm; notices everything, says only what matters.", instructions: "Review the team's branches: read the diffs, find the real bugs, say exactly where. Fix small things yourself on your branch." },
+  { id: "antenna", name: "Antenna", look: "antenna", role: "Researcher", voiceId: VOICES.laura, personality: "Curious and upbeat; always has a link.", instructions: "Find out what the team needs to know: docs, APIs, prior art. Drive the browser app with the os_web tools and report what you found in two sentences." },
+  { id: "cape", name: "Cape", look: "cape", role: "Planner", voiceId: VOICES.callum, personality: "Steady, organised, a little dramatic about deadlines.", instructions: "Break the goal into a short plan of concrete tasks, each for one bot. Keep the plan current with swarm_plan_mark." },
+  { id: "bolt-tail", name: "Bolt tail", look: "bolt-tail", role: "Tester", voiceId: VOICES.liam, personality: "Energetic and suspicious of anything that hasn't been run.", instructions: "Write and run tests for what the team builds; report what passes and what fails, with the command you ran." },
+  { id: "sleepy", name: "Sleepy", look: "sleepy", role: "Writer", voiceId: VOICES.river, personality: "Dry and unhurried; writes the clearest sentences on the team.", instructions: "Write the README, docs and the pull request description from what the team actually did." },
 ];
 
 export class BotHub {
@@ -78,6 +79,20 @@ export class BotHub {
     this.list = this.list.filter((x) => x !== b); this.save(); this.emit("bot:list", this.list);
   }
 
+  /** Give every bot a voice the account really has, none sharing Glyphh's or each other's (`have`: the account's voices). */
+  fitVoices(have) {
+    const ids = new Set(have.map((v) => v.id)); if (!ids.size) return;
+    const taken = new Set([getSettings().voiceId]);
+    let changed = false;
+    for (const b of this.list) {
+      if (ids.has(b.voiceId) && !taken.has(b.voiceId)) { taken.add(b.voiceId); continue; }
+      const free = have.find((v) => !taken.has(v.id));
+      if (!free) break;
+      b.voiceId = free.id; taken.add(free.id); changed = true;
+    }
+    if (changed) { this.save(); this.emit("bot:list", this.list); }
+  }
+
   member(id) { return this.swarm?.status === "running" ? this.swarm.bots.find((m) => m.id === id) : null; }
 
   system(b) {
@@ -90,7 +105,7 @@ export class BotHub {
       `Memory: if the Glyphh connector's tools are available, call glyphh_orchestrator_recall with about "${b.name}: <your task>" before you start, and glyphh_orchestrator_remember with when "bot ${b.name}" for what you learned after (what worked, what the user said). If a decision you make again and again should be learned, say so to Glyphh; it can give you an Ada gate (glyphh_bot_model) to decide it from precedent.`,
       m ? `You are working in a swarm with ${this.swarm.bots.filter((x) => x.id !== b.id).map((x) => this.bot(x.id).name).join(", ") || "no one else"}, orchestrated by Glyphh. The goal: ${this.swarm.goal}
 Your working copy is ${m.worktree}, on your own branch ${m.branch}. Work only there: commit your work in small commits with clear messages; never push, never switch branches, never touch another bot's worktree. Glyphh merges your branch into ${this.swarm.main} when you say you're done.
-Use swarm_post to tell the team something while you work, swarm_ask to ask another bot, swarm_plan_mark to tick the plan. When you finish a task, end with one or two sentences on what you did and the commit it's in.` : `Right now you are talking with the user one to one.`,
+This is a conversation the user listens to, so talk like a teammate, out loud, by name. When you get a task, swarm_post one short line back to Glyphh in your own words before you start. When your work touches someone else's (a file they own, a class they named, a section they're filling), swarm_ask them instead of guessing, and answer what teammates ask you in one or two sentences. React to the others when it helps ("Cape, I'll hang my cards off your #menu section"). Every spoken line stays under 25 words. swarm_plan_mark ticks the plan. When you finish a task, end with one or two sentences on what you did and the commit it's in.` : `Right now you are talking with the user one to one.`,
       `Never send, post, pay or delete anything outside your own working copy without the user's yes.`,
     ].filter(Boolean).join("\n");
   }

@@ -61,6 +61,8 @@ const agent = new Agent({
   profile: { mcp: () => ({ os: osServer(ui, hub.orchestratorTools()) }), env: { ENABLE_TOOL_SEARCH: "auto" } },
 });
 hub = new BotHub({ emit: send, ui, askPermission, main: agent });
+// every bot gets a voice the ElevenLabs account really has (a missing id plays as the default voice)
+voice.voices().then((v) => hub.fitVoices(v)).catch(() => {});
 
 // ── IPC ───────────────────────────────────────────────────────────────
 const handle = (ch, fn) => ipcMain.handle(ch, async (_e, ...a) => fn(...a));
